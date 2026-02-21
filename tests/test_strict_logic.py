@@ -10,6 +10,7 @@ import model_did
 import model_causal_ml
 import model_synth_control
 import panel_pipeline
+import historical_backfill
 import scraper
 import strict_reviewer
 
@@ -443,6 +444,24 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(e.get("official_to_media_lag_days"), 1)
         self.assertTrue(e.get("official_leads_media"))
         self.assertGreaterEqual(len(e.get("corroboration_timeline", [])), 2)
+
+    def test_historical_backfill_build_row_shapes_panel_fields(self):
+        row = historical_backfill.build_row(
+            day_iso="2020-01-02",
+            policy="strict-balanced",
+            ufo_count=5,
+            crisis_count=7,
+            ctrl_economy=3,
+            ctrl_security=4,
+            ctrl_immigration=1,
+        )
+        self.assertEqual(row["date"], "2020-01-02")
+        self.assertEqual(row["policy"], "strict-balanced")
+        self.assertEqual(row["ufo_count"], 5)
+        self.assertEqual(row["crisis_count"], 7)
+        self.assertEqual(row["control_total"], 8)
+        self.assertEqual(row["data_source"], historical_backfill.BACKFILL_TAG)
+        self.assertEqual(row["date_scope"], "run_day_only")
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@
 ├── research_unified_pipeline.py # 统一研究总管道（双档+对照构建+严格评审+模型）
 ├── control_panel_builder.py # 对照面板构建器（topic/country 自动更新）
 ├── model_causal_ml.py     # 因果机器学习（DML + 因果森林代理）
+├── historical_backfill.py # 历史回填（GDELT 日度计数，2017年至今）
 ├── strict_reviewer.py     # 统一严格评审器（输出研究等级与闸门状态）
 ├── STRICT_GATES.md        # 严格闸门定义（L0-L4）
 ├── pre_registration.md    # 预注册草案
@@ -265,6 +266,23 @@ python strict_reviewer.py \
 ```bash
 python control_panel_builder.py --lookback-days 120
 ```
+
+### 9. 历史年份样本回填（推荐做法）
+如果你研究的是历史数据，不应只依赖“当天抓取一行”。可用：
+```bash
+# 从 2017-01-01 回填到今天（strict-balanced）
+python historical_backfill.py --start-date 2017-01-01 --policy strict-balanced
+
+# 同步回填 strict 档（用于双档稳定性评审）
+python historical_backfill.py --start-date 2017-01-01 --policy strict
+```
+输出：
+- `data/causal_panel.json`（补充历史日度面板）
+- `data/historical_backfill_report.json`（回填范围、插入量、查询口径）
+
+说明：
+- 回填默认不覆盖实时抓取行（保护你当天的严格抓取快照）。
+- 回填数据用于样本扩充与稳健性检验，不替代事件级人工核查。
 
 ### 9. 逻辑回归测试
 ```bash
