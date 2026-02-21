@@ -330,6 +330,62 @@ class TestStrictLogic(unittest.TestCase):
         self.assertGreater(len(dataset), 5)
         self.assertGreaterEqual(treated, 1)
 
+    def test_official_source_detection(self):
+        self.assertTrue(strict_reviewer.is_official_source("Pentagon / DoD 新闻稿"))
+        self.assertTrue(strict_reviewer.is_official_source("White House 新闻稿"))
+        self.assertFalse(strict_reviewer.is_official_source("BBC 美国&加拿大新闻"))
+
+    def test_mechanism_summary_detects_official_lead_proxy(self):
+        scraped = {
+            "ufo_news": [
+                {
+                    "source": "Pentagon / DoD 新闻稿",
+                    "primary_source": "Pentagon / DoD 新闻稿",
+                    "corroborated_sources": ["BBC 美国&加拿大新闻", "NYT 美国新闻"],
+                },
+                {
+                    "source": "BBC 美国&加拿大新闻",
+                    "primary_source": "BBC 美国&加拿大新闻",
+                    "corroborated_sources": ["Pentagon / DoD 新闻稿"],
+                },
+                {
+                    "source": "NYT 美国新闻",
+                    "primary_source": "NYT 美国新闻",
+                    "corroborated_sources": [],
+                },
+            ]
+        }
+        m = strict_reviewer.summarize_mechanism_signals(
+            scraped,
+            min_official_share=0.3,
+            min_official_lead_events=1,
+        )
+        self.assertEqual(m["metrics"]["ufo_events_total"], 3)
+        self.assertGreaterEqual(m["metrics"]["official_source_share"], 0.3)
+        self.assertGreaterEqual(m["metrics"]["official_primary_with_media_followup_events"], 1)
+        self.assertTrue(m["mechanism_passed"])
+
+    def test_inference_matrix_transitions(self):
+        mechanism_fail = {"mechanism_passed": False}
+        mechanism_pass = {"mechanism_passed": True}
+
+        s1 = {
+            "signals": {"has_temporal_signal": True, "verdict_has_correlation_phrase": True},
+            "gates": {"core_passed": False, "falsification_passed": False},
+        }
+        i1 = strict_reviewer.build_inference_matrix(s1, mechanism_fail)
+        self.assertEqual(i1["level"], "TEMPORAL_ASSOCIATION_ONLY")
+
+        s2 = {
+            "signals": {"has_temporal_signal": True, "verdict_has_correlation_phrase": True},
+            "gates": {"core_passed": True, "falsification_passed": True},
+        }
+        i2 = strict_reviewer.build_inference_matrix(s2, mechanism_fail)
+        self.assertEqual(i2["level"], "CAUSAL_SIGNAL_WITHOUT_STRATEGIC_MECHANISM")
+
+        i3 = strict_reviewer.build_inference_matrix(s2, mechanism_pass)
+        self.assertEqual(i3["level"], "STRATEGIC_COMMUNICATION_INDICATION")
+
 
 if __name__ == "__main__":
     unittest.main()

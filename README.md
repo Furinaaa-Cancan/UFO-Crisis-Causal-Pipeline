@@ -226,6 +226,24 @@ python research_unified_pipeline.py --only-policy strict --model-policy strict
 - `data/model_synth_control_report.json`
 - `data/model_causal_ml_report.json`
 
+`strict_review_snapshot.json` 现在包含三层解释矩阵（避免直接二元“故意/不故意”）：
+- `stage_a_temporal_association`：是否存在稳定时序相关
+- `stage_b_causal_identification`：是否通过因果识别闸门
+- `stage_c_strategic_mechanism`：是否出现“官方先发→媒体跟进”机制信号
+
+对应结论等级：
+- `TEMPORAL_ASSOCIATION_ONLY`（仅相关）
+- `CAUSAL_SIGNAL_WITHOUT_STRATEGIC_MECHANISM`（有因果信号但机制不足）
+- `STRATEGIC_COMMUNICATION_INDICATION`（策略沟通迹象，非最终动机证据）
+
+可调机制闸门（`strict_reviewer.py`）：
+```bash
+python strict_reviewer.py \
+  --expected-policy strict-balanced \
+  --min-official-share 0.30 \
+  --min-official-lead-events 1
+```
+
 > 注意：模型脚本在样本不足或对照组缺失时会明确返回 `pending/blocked`，不会伪造因果结论。
 > 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，
 > 以避免触发国家 RSS 联网抓取，保证离线/复现语义一致。

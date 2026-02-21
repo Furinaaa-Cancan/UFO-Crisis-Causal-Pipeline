@@ -30,6 +30,22 @@ MODEL_SYNTH_FILE = DATA_DIR / "model_synth_control_report.json"
 MODEL_CAUSAL_ML_FILE = DATA_DIR / "model_causal_ml_report.json"
 OUT_FILE = DATA_DIR / "strict_review_snapshot.json"
 
+OFFICIAL_SOURCE_HINTS = (
+    "white house",
+    "pentagon",
+    "department of defense",
+    "dod",
+    "state department",
+    "congress",
+    "senate",
+    "house",
+    "doj",
+    "fbi",
+    "cia",
+    "nasa",
+    "aaro",
+)
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="统一严格评审")
@@ -38,6 +54,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-failed-source-ratio", type=float, default=0.10)
     p.add_argument("--min-observed-ratio", type=float, default=0.85)
     p.add_argument("--max-missing-streak", type=int, default=7)
+    p.add_argument("--min-official-share", type=float, default=0.30)
+    p.add_argument("--min-official-lead-events", type=int, default=1)
     return p.parse_args()
 
 
@@ -55,6 +73,137 @@ def _gate_pass(gate_map: Dict[str, bool], prefix: str) -> bool:
     return False
 
 
+def is_official_source(source_name: str | None) -> bool:
+    if not source_name:
+        return False
+    lowered = source_name.lower()
+    return any(h in lowered for h in OFFICIAL_SOURCE_HINTS)
+
+
+def summarize_mechanism_signals(
+    scraped: Dict[str, Any],
+    min_official_share: float,
+    min_official_lead_events: int,
+) -> Dict[str, Any]:
+    ufo_events = scraped.get("ufo_news", [])  # type: ignore
+    total = len(ufo_events)
+    official_involved = 0
+    official_primary = 0
+    official_primary_with_media_followup = 0
+    media_primary_with_official_secondary = 0
+
+    for row in ufo_events:  # type: ignore
+        source_pool = set()
+        for k in ("source", "primary_source"):
+            v = row.get(k)  # type: ignore
+            if v:
+                source_pool.add(str(v))
+        for s in row.get("corroborated_sources", []) or []:  # type: ignore
+            if s:
+                source_pool.add(str(s))
+
+        official_sources = [s for s in source_pool if is_official_source(s)]
+        non_official_sources = [s for s in source_pool if not is_official_source(s)]
+        primary_source = row.get("primary_source") or row.get("source")  # type: ignore
+        primary_is_official = is_official_source(str(primary_source) if primary_source else None)
+
+        if official_sources:
+            official_involved += 1  # type: ignore
+        if primary_is_official:
+            official_primary += 1  # type: ignore
+            if non_official_sources:
+                official_primary_with_media_followup += 1  # type: ignore
+        elif official_sources:
+            media_primary_with_official_secondary += 1  # type: ignore
+
+    official_share = (official_involved / float(total)) if total > 0 else 0.0
+    official_primary_share = (official_primary / float(total)) if total > 0 else 0.0
+    enough_ufo_events = total >= 3
+
+    gates = {
+        "enough_ufo_events_for_mechanism": enough_ufo_events,
+        f"official_share>={min_official_share:.2f}": official_share >= min_official_share,
+        f"official_lead_events>={min_official_lead_events}": (
+            official_primary_with_media_followup >= min_official_lead_events
+        ),
+    }
+    mechanism_passed = all(gates.values())
+
+    return {
+        "metrics": {
+            "ufo_events_total": total,
+            "official_involved_events": official_involved,
+            "official_primary_events": official_primary,
+            "official_primary_with_media_followup_events": official_primary_with_media_followup,
+            "media_primary_with_official_secondary_events": media_primary_with_official_secondary,
+            "official_source_share": round(official_share, 6),  # type: ignore
+            "official_primary_share": round(official_primary_share, 6),  # type: ignore
+        },
+        "gates": gates,
+        "mechanism_passed": mechanism_passed,
+    }
+
+
+def build_inference_matrix(summary: Dict[str, Any], mechanism: Dict[str, Any]) -> Dict[str, Any]:
+    stage_a_temporal = bool(
+        summary.get("signals", {}).get("has_temporal_signal")
+        or summary.get("signals", {}).get("verdict_has_correlation_phrase")
+    )
+    stage_b_causal = bool(
+        summary.get("gates", {}).get("core_passed")
+        and summary.get("gates", {}).get("falsification_passed")
+    )
+    stage_c_mechanism = bool(stage_b_causal and mechanism.get("mechanism_passed"))
+
+    if not stage_a_temporal:
+        level = "NO_TEMPORAL_SIGNAL"
+        conclusion = "未观察到稳定时序信号，当前不支持相关/因果解释。"
+    elif not stage_b_causal:
+        level = "TEMPORAL_ASSOCIATION_ONLY"
+        conclusion = "仅观察到时序相关，因果识别闸门尚未通过。"
+    elif not stage_c_mechanism:
+        level = "CAUSAL_SIGNAL_WITHOUT_STRATEGIC_MECHANISM"
+        conclusion = "存在因果信号，但缺少“官方先发→媒体跟进”机制证据。"
+    else:
+        level = "STRATEGIC_COMMUNICATION_INDICATION"
+        conclusion = "因果与机制闸门均通过，存在策略性沟通迹象（非动机终局证据）。"
+
+    return {
+        "stage_a_temporal_association": stage_a_temporal,
+        "stage_b_causal_identification": stage_b_causal,
+        "stage_c_strategic_mechanism": stage_c_mechanism,
+        "level": level,
+        "conclusion": conclusion,
+    }
+
+
+def build_next_actions(inference: Dict[str, Any]) -> list[str]:
+    level = inference.get("level", "")
+    if level == "NO_TEMPORAL_SIGNAL":
+        return [
+            "核查关键词与事件定义，避免把非政治议题混入冲击日。",
+            "扩展历史窗口并补齐来源，先确认时序相关是否稳定存在。",
+            "在出现稳定相关前，不进入因果或动机解释。",
+        ]
+    if level == "TEMPORAL_ASSOCIATION_ONLY":
+        return [
+            "优先补齐历史面板与冲击日样本，先过因果识别闸门。",
+            "持续跑 DID/事件研究/合成控制/Causal ML，并执行安慰剂与反向因果检验。",
+            "因果闸门未通过前，禁止使用“故意引导”表述。",
+        ]
+    if level == "CAUSAL_SIGNAL_WITHOUT_STRATEGIC_MECHANISM":
+        return [
+            "补充机制变量：official_source_share、official_primary_with_media_followup、official_to_media_lag。",
+            "区分“官方主动发布”与“媒体自发放大”两条路径，增加事件级证据链。",
+            "机制闸门通过前，仅可表述为“因果效应”，不可上升到“策略意图”。",
+        ]
+    return [
+        "继续跨日复现并做跨时期外部验证，防止单阶段偶然结果。",
+        "补充定性证据（官方文件/听证材料）强化动机解释的外部效度。",
+        "报告中保持边界：策略迹象≠直接证明主观动机。",
+    ]
+
+
 def build_signature(summary: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "approval_status": summary["decision"]["approval_status"],  # type: ignore
@@ -69,6 +218,7 @@ def build_signature(summary: Dict[str, Any]) -> Dict[str, Any]:
         "panel_observed_days": summary["quality"]["panel_observed_days"],  # type: ignore
         "panel_shock_days": summary["quality"]["panel_shock_days"],  # type: ignore
         "dual_status": summary["signals"]["dual_review_status"],  # type: ignore
+        "inference_level": summary["inference"]["level"],  # type: ignore
     }
 
 
@@ -210,6 +360,11 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     falsification_passed = models_estimated and model_falsification_ok and causal_ml_consistent
 
     has_temporal_signal = (panel_observed_days > 0 and panel_shock_days > 0) or (n_ufo > 0 and n_crisis > 0)
+    mechanism = summarize_mechanism_signals(
+        scraped,
+        min_official_share=args.min_official_share,
+        min_official_lead_events=args.min_official_lead_events,
+    )
 
     summary: Dict[str, Any] = {  # type: ignore
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
@@ -232,6 +387,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
             "dual_review_status": dual_status,
             "dual_overlap_days": int(dual.get("current", {}).get("overlap_days", 0) or 0),  # type: ignore
         },
+        "mechanism": mechanism,
         "quality": {
             "source_availability_rate": avail,
             "source_failed_count": failed_sources,
@@ -264,17 +420,18 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
             "source_gate_passed": source_gate_passed,
             "dual_stable_passed": dual_stable_passed,
             "policy_consistency_passed": policy_consistency_passed,
+            "mechanism_gate_passed": bool(mechanism.get("mechanism_passed")),
             "reproducibility_passed": False,
             "gate_map": gates,
         },
+        "inference": {},
         "meta": {},
         "research_level": "",
-        "next_actions": [
-            "继续累计 observed_days 与 shock_days 至门槛",
-            "保持 strict 与 strict-balanced 双档同步累计并提升 overlap",
-            "仅在 core+falsification 全部通过后才宣称因果",
-        ],
+        "next_actions": [],
     }
+
+    summary["inference"] = build_inference_matrix(summary, mechanism)  # type: ignore
+    summary["next_actions"] = build_next_actions(summary["inference"])  # type: ignore
 
     signature = build_signature(summary)
     curr_ts = _parse_iso_ts(summary.get("generated_at"))  # type: ignore
@@ -310,10 +467,18 @@ def main() -> None:
     print(f"source_availability_rate: {report['quality']['source_availability_rate']:.4f}")  # type: ignore
     print(f"panel_observed_days: {report['quality']['panel_observed_days']}")  # type: ignore
     print(f"panel_shock_days: {report['quality']['panel_shock_days']}")  # type: ignore
+    print(f"inference_level: {report['inference']['level']}")  # type: ignore
+    print(f"inference_conclusion: {report['inference']['conclusion']}")  # type: ignore
     print(
         "causal_ml: "
         f"{report['quality']['models']['causal_ml_status']} "
         f"(passed={report['quality']['models']['causal_ml_passed']})"
+    )  # type: ignore
+    print(
+        "mechanism: "
+        f"official_share={report['mechanism']['metrics']['official_source_share']}, "
+        f"official_lead_events={report['mechanism']['metrics']['official_primary_with_media_followup_events']}, "
+        f"passed={report['mechanism']['mechanism_passed']}"
     )  # type: ignore
     print(f"[输出] {OUT_FILE}")  # type: ignore
 
