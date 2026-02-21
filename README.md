@@ -228,6 +228,15 @@ python research_unified_pipeline.py --only-policy strict --model-policy strict
 python control_panel_builder.py --lookback-days 120
 ```
 
+### 9. 逻辑回归测试
+```bash
+python -m unittest discover -s tests -p 'test_*.py'
+```
+当前测试覆盖：
+- `run_day_only` 面板口径是否生效
+- 双档评审是否排除旧口径行
+- 严格研究等级（L3/L4）判定是否满足闸门逻辑
+
 ---
 
 ## 抓取真实性机制（v2 严格模式）
@@ -241,6 +250,7 @@ python control_panel_builder.py --lookback-days 120
 - 文本质量：标题长度与垃圾标题模式检测
 - 时间有效性：日期可解析、非未来、且在回看窗口内
 - 主题相关性：UFO/危机关键词命中
+- 制度动作信号：法院裁决/听证/行政命令/起诉等“官方动作关键词”命中
 
 ### 交叉佐证规则
 - 同一事件按标题指纹聚类（claim fingerprint）
@@ -254,7 +264,7 @@ python control_panel_builder.py --lookback-days 120
 - Reddit与聚合源（如 Google News）若缺少可信佐证会被拒绝
 - 日期解析失败、未来日期、超出窗口条目直接拒绝
 - 关联匹配启用限额：每个危机最多匹配少量高分UFO事件，每个UFO事件也限制复用次数
-- 危机事件必须满足“标题级硬信号”（如 indictment/impeach/scandal 等），仅在摘要命中不通过
+- 危机事件必须满足“标题级危机/官方动作信号”（如 indictment/impeach/scandal/supreme court ruling 等），仅在摘要命中不通过
 - 危机事件标题需出现国家级政治行为体（如 president/white house/congress/doj/trump/biden）
 - 评论/专栏与混合串联标题（如 `... And, ...`）会被直接剔除
 

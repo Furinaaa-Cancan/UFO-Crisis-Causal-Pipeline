@@ -114,6 +114,14 @@ CRISIS_HARD_SIGNAL_KEYWORDS = [
     "emoluments", "coverup", "corruption", "epstein",
 ]
 
+OFFICIAL_ACTION_KEYWORDS = [
+    "supreme court", "appeals court", "court order", "court ruling", "ruling",
+    "ruled", "rules", "strikes down", "struck down", "overturn", "overturned",
+    "injunction", "injunctive", "enjoined", "blocked", "veto", "signed into law",
+    "executive order", "hearing", "committee vote", "vote to", "passed bill",
+    "filed lawsuit", "lawsuit", "charged", "convicted", "sentenced", "plea deal",
+]
+
 POLITICAL_CONTEXT_KEYWORDS = [
     "president", "white house", "congress", "senate", "house",
     "doj", "department of justice", "fbi", "federal", "supreme court",
@@ -151,6 +159,8 @@ POLICY_CONFIGS = {
         "enforce_opinion_filter": True,
         "enforce_roundup_filter": True,
         "strict_source_rules": True,
+        "require_crisis_national_context": True,
+        "require_crisis_hard_signal": True,
     },
     POLICY_STRICT_BALANCED: {
         "min_score": 55,
@@ -160,6 +170,8 @@ POLICY_CONFIGS = {
         "enforce_opinion_filter": True,
         "enforce_roundup_filter": True,
         "strict_source_rules": True,
+        "require_crisis_national_context": True,
+        "require_crisis_hard_signal": False,
     },
     POLICY_LENIENT: {
         "min_score": LENIENT_MIN_SCORE,
@@ -169,6 +181,8 @@ POLICY_CONFIGS = {
         "enforce_opinion_filter": False,
         "enforce_roundup_filter": False,
         "strict_source_rules": False,
+        "require_crisis_national_context": False,
+        "require_crisis_hard_signal": False,
     },
 }
 
@@ -614,17 +628,20 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         ufo_hits = keyword_hits(text, UFO_KEYWORDS)
         crisis_hits = keyword_hits(text, CRISIS_KEYWORDS)
         hard_crisis_hits = keyword_hits(text, CRISIS_HARD_SIGNAL_KEYWORDS)
+        official_action_hits = keyword_hits(text, OFFICIAL_ACTION_KEYWORDS)
         title_ufo_hits = keyword_hits(title.lower(), UFO_KEYWORDS)
         title_crisis_hits = keyword_hits(title.lower(), CRISIS_KEYWORDS)
         title_hard_crisis_hits = keyword_hits(title.lower(), CRISIS_HARD_SIGNAL_KEYWORDS)
+        title_official_action_hits = keyword_hits(title.lower(), OFFICIAL_ACTION_KEYWORDS)
         title_actor_hits = keyword_hits(title.lower(), TITLE_NATIONAL_POLITICAL_KEYWORDS)
-        if not ufo_hits and not crisis_hits:
+        if not ufo_hits and not crisis_hits and not hard_crisis_hits and not official_action_hits:
             hard_reasons.append("no_relevance_keywords")
 
         initial_category = item.get("category", "ufo")
-        if len(ufo_hits) > len(crisis_hits):
+        crisis_signal_strength = len(crisis_hits) + len(hard_crisis_hits) + len(official_action_hits)
+        if len(ufo_hits) > crisis_signal_strength:
             final_category = "ufo"
-        elif len(crisis_hits) > len(ufo_hits):
+        elif crisis_signal_strength > len(ufo_hits):
             final_category = "crisis"
         else:
             final_category = initial_category
@@ -634,9 +651,11 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         item["ufo_keywords"] = ufo_hits[:12]
         item["crisis_keywords"] = crisis_hits[:12]
         item["hard_crisis_keywords"] = hard_crisis_hits[:12]
+        item["official_action_keywords"] = official_action_hits[:12]
         item["title_ufo_keywords"] = title_ufo_hits[:12]
         item["title_crisis_keywords"] = title_crisis_hits[:12]
         item["title_hard_crisis_keywords"] = title_hard_crisis_hits[:12]
+        item["title_official_action_keywords"] = title_official_action_hits[:12]
         item["title_national_actor_keywords"] = title_actor_hits[:12]
         political_hits = keyword_hits(text, POLITICAL_CONTEXT_KEYWORDS)
         item["political_context_relevance"] = len(political_hits)
@@ -714,6 +733,7 @@ def evaluate_base_authenticity(items, lookback_days, policy):
                 score += 6
 
         score += min(len(ufo_hits) + len(crisis_hits), 8)
+        score += min(len(official_action_hits), 4)
 
         if final_category == "crisis":
             if political_hits:
@@ -721,15 +741,19 @@ def evaluate_base_authenticity(items, lookback_days, policy):
             else:
                 hard_reasons.append("crisis_without_political_context")
 
-            if not national_hits:
+            if policy.get("require_crisis_national_context", True) and not national_hits:
                 hard_reasons.append("crisis_without_national_context")
-            if not hard_crisis_hits:
+            if policy.get("require_crisis_hard_signal", True) and not hard_crisis_hits and not official_action_hits:
                 hard_reasons.append("crisis_without_hard_signal")
             if policy["enforce_crisis_title_actor"] and not title_actor_hits:
                 hard_reasons.append("crisis_title_without_national_actor")
-            if not title_crisis_hits and not hard_crisis_hits:
+            if not title_crisis_hits and not title_hard_crisis_hits and not title_official_action_hits:
                 hard_reasons.append("crisis_signal_only_in_description")
-            if policy["enforce_crisis_title_hard_signal"] and not title_hard_crisis_hits:
+            if (
+                policy["enforce_crisis_title_hard_signal"]
+                and not title_hard_crisis_hits
+                and not title_official_action_hits
+            ):
                 hard_reasons.append("crisis_hard_signal_only_in_description")
 
         if final_category == "ufo":
