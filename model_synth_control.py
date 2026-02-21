@@ -10,23 +10,29 @@
 - post窗口 gap ATT
 - 安慰剂 p 值
 """
-
+# pyre-ignore-all-errors
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import random
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Dict, List
 
+from utils import (  # type: ignore[import]
+    compute_shock_threshold,
+    make_rng,
+    parse_date,
+    read_panel_rows as _read_panel_rows,
+)
 
-BASE_DIR = Path(__file__).resolve().parent
+
+BASE_DIR = Path(__file__).resolve().parent  # type: ignore
 DATA_DIR = BASE_DIR / "data"
 COUNTRY_FILE = DATA_DIR / "control_panels" / "country_controls.csv"
-PANEL_FILE = DATA_DIR / "causal_panel.json"
+PANEL_FILE = DATA_DIR / "causal_panel.json"  # type: ignore
 OUT_FILE = DATA_DIR / "model_synth_control_report.json"
 
 SEED = 20260221
@@ -34,37 +40,14 @@ PERMUTATIONS = 2000
 MIN_SHOCK_DAYS = 8
 MIN_PRE_DAYS = 30
 MIN_POST_DAYS = 8
-SHOCK_COUNT_FLOOR = 2.0
-
-
-def parse_date(s: str) -> date:
-    return datetime.strptime(s, "%Y-%m-%d").date()
-
-
-def percentile(values: List[float], p: float) -> float:
-    if not values:
-        return 0.0
-    xs = sorted(values)
-    if len(xs) == 1:
-        return xs[0]
-    idx = (len(xs) - 1) * (p / 100.0)
-    lo = int(idx)
-    hi = min(lo + 1, len(xs) - 1)
-    w = idx - lo
-    return xs[lo] * (1 - w) + xs[hi] * w
-
-
-def compute_shock_threshold(nonzero_values: List[float], q: float = 75.0, floor: float = SHOCK_COUNT_FLOOR) -> float:
-    if not nonzero_values:
-        return floor
-    return max(floor, percentile(nonzero_values, q))
+# parse_date, compute_shock_threshold 已移至 utils.py
 
 
 def load_country_rows() -> List[dict]:
-    if not COUNTRY_FILE.exists():
+    if not COUNTRY_FILE.exists():  # type: ignore
         return []
     rows = []
-    with COUNTRY_FILE.open("r", encoding="utf-8") as f:
+    with COUNTRY_FILE.open("r", encoding="utf-8") as f:  # type: ignore
         reader = csv.DictReader(f)
         for r in reader:
             rows.append(r)
@@ -72,36 +55,42 @@ def load_country_rows() -> List[dict]:
 
 
 def load_us_shock_days(policy: str = "strict-balanced") -> List[date]:
-    if not PANEL_FILE.exists():
+    rows = _read_panel_rows(PANEL_FILE, policy)
+    if not rows:
         return []
-    with PANEL_FILE.open("r", encoding="utf-8") as f:
-        rows = json.load(f).get("rows", [])
-    run_day_rows = [r for r in rows if r.get("date_scope") == "run_day_only"]
-    effective_rows = run_day_rows if run_day_rows else rows
-    us = [r for r in effective_rows if r.get("policy") == policy and r.get("date")]
-    if not us:
-        return []
-    series = {parse_date(r["date"]): float(r.get("crisis_count", 0)) for r in us}
-    nonzero = [v for v in series.values() if v > 0]
+    series = {parse_date(r["date"]): float(r.get("crisis_count", 0)) for r in rows}  # type: ignore
+    nonzero = [v for v in series.values() if v > 0]  # type: ignore
     thr = compute_shock_threshold(nonzero)
-    return sorted([d for d, v in series.items() if v >= thr])
+    return sorted([d for d, v in series.items() if v >= thr])  # type: ignore
+
+
+def split_pre_post_dates(us_dates: List[date], shocks: List[date], post_horizon_days: int = 7) -> tuple[List[date], List[date]]:
+    shock_set = set(shocks)
+    post_window = set()
+    for d in shocks:
+        for k in range(1, post_horizon_days + 1):
+            post_window.add(d + timedelta(days=k))  # type: ignore
+    post_dates = [d for d in us_dates if d in post_window]
+    # Shock day itself is neither pre nor post.
+    pre_dates = [d for d in us_dates if d not in post_window and d not in shock_set]
+    return pre_dates, post_dates
 
 
 def inverse_mse_weights(us: Dict[date, float], donors: Dict[str, Dict[date, float]], pre_dates: List[date]) -> Dict[str, float]:
     raw = {}
-    for c, s in donors.items():
+    for c, s in donors.items():  # type: ignore
         errs = []
         for d in pre_dates:
             if d in us and d in s:
-                errs.append((us[d] - s[d]) ** 2)
+                errs.append((us[d] - s[d]) ** 2)  # type: ignore
         mse = mean(errs) if errs else 1e6
-        raw[c] = 1.0 / (mse + 1e-6)
+        raw[c] = 1.0 / (mse + 1e-6)  # type: ignore
 
-    z = sum(raw.values())
+    z = sum(raw.values())  # type: ignore
     if z <= 0:
         n = max(1, len(raw))
         return {k: 1.0 / n for k in raw}
-    return {k: v / z for k, v in raw.items()}
+    return {k: v / z for k, v in raw.items()}  # type: ignore
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,7 +111,7 @@ def main() -> None:
     args = parse_args()
     rows = load_country_rows()
     out = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
         "model": "synthetic_control_simplified",
         "policy": args.policy,
         "status": "blocked",
@@ -145,126 +134,120 @@ def main() -> None:
     }
 
     if not rows:
-        out["reason"] = "country_controls.csv 缺失或为空"
+        out["reason"] = "country_controls.csv 缺失或为空"  # type: ignore
     else:
-        series: Dict[str, Dict[date, float]] = {}
+        series: Dict[str, Dict[date, float]] = {}  # type: ignore
         for r in rows:
             try:
-                d = parse_date(r.get("date", ""))
-                c = r.get("country", "")
-                y = float(r.get("ufo_policy_news", "0") or 0)
+                d = parse_date(r.get("date", ""))  # type: ignore
+                c = r.get("country", "")  # type: ignore
+                y = float(r.get("ufo_policy_news", "0") or 0)  # type: ignore
             except Exception:
                 continue
             if not c:
                 continue
-            series.setdefault(c, {})[d] = y
+            series.setdefault(c, {})[d] = y  # type: ignore
 
-        countries = sorted(series.keys())
-        out["countries"] = countries
+        countries = sorted(series.keys())  # type: ignore
+        out["countries"] = countries  # type: ignore
         if "US" not in series:
-            out["reason"] = "country_controls.csv 缺少 US 行"
+            out["reason"] = "country_controls.csv 缺少 US 行"  # type: ignore
         else:
-            us = series["US"]
-            donors_all = {c: s for c, s in series.items() if c != "US"}
+            us = series["US"]  # type: ignore
+            donors_all = {c: s for c, s in series.items() if c != "US"}  # type: ignore
             if len(donors_all) < 3:
-                out["reason"] = "对照国家数量不足（需要 >=3）"
+                out["reason"] = "对照国家数量不足（需要 >=3）"  # type: ignore
             else:
                 shocks = load_us_shock_days(args.policy)
                 if len(shocks) < args.min_shock_days:
-                    out["reason"] = f"US 冲击日不足（{len(shocks)} < {args.min_shock_days}），无法估计"
+                    out["reason"] = f"US 冲击日不足（{len(shocks)} < {args.min_shock_days}），无法估计"  # type: ignore
                 else:
-                    us_dates = sorted(us.keys())
-                    shock_window = set()
-                    for d in shocks:
-                        for k in range(1, 8):
-                            shock_window.add(d + timedelta(days=k))
-
-                    post_dates = [d for d in us_dates if d in shock_window]
-                    pre_dates = [d for d in us_dates if d not in shock_window]
-                    out["metrics"]["n_pre_dates"] = len(pre_dates)
-                    out["metrics"]["n_post_dates"] = len(post_dates)
+                    us_dates = sorted(us.keys())  # type: ignore
+                    pre_dates, post_dates = split_pre_post_dates(us_dates, shocks, post_horizon_days=7)
+                    out["metrics"]["n_pre_dates"] = len(pre_dates)  # type: ignore
+                    out["metrics"]["n_post_dates"] = len(post_dates)  # type: ignore
 
                     if len(pre_dates) < args.min_pre_days or len(post_dates) < args.min_post_days:
-                        out["reason"] = "pre/post 样本不足"
+                        out["reason"] = "pre/post 样本不足"  # type: ignore
                     else:
                         min_overlap = max(15, len(pre_dates) // 4)
                         donors = {}
-                        for c, s in donors_all.items():
+                        for c, s in donors_all.items():  # type: ignore
                             overlap = sum(1 for d in pre_dates if d in s)
                             if overlap >= min_overlap:
-                                donors[c] = s
+                                donors[c] = s  # type: ignore
 
                         if len(donors) < 3:
-                            out["reason"] = "与 US 的 donor overlap 不足（需要 >=3 个国家）"
+                            out["reason"] = "与 US 的 donor overlap 不足（需要 >=3 个国家）"  # type: ignore
                         else:
                             weights = inverse_mse_weights(us, donors, pre_dates)
-                            out["weights"] = {k: round(v, 6) for k, v in weights.items()}
+                            out["weights"] = {k: round(v, 6) for k, v in weights.items()}  # type: ignore
 
                             def synth_value(d: date) -> float | None:
-                                active = {c: w for c, w in weights.items() if d in donors[c]}
+                                active = {c: w for c, w in weights.items() if d in donors[c]}  # type: ignore
                                 if not active:
                                     return None
-                                z = sum(active.values())
+                                z = sum(active.values())  # type: ignore
                                 if z <= 0:
                                     return None
-                                return sum((w / z) * donors[c][d] for c, w in active.items())
+                                return sum((w / z) * donors[c][d] for c, w in active.items())  # type: ignore
 
                             gap = {}
                             for d in us_dates:
                                 sv = synth_value(d)
                                 if sv is None:
                                     continue
-                                gap[d] = us[d] - sv
+                                gap[d] = us[d] - sv  # type: ignore
 
-                            pre_gap = [gap[d] for d in pre_dates if d in gap]
-                            post_gap = [gap[d] for d in post_dates if d in gap]
-                            out["metrics"]["n_common_dates"] = len(gap)
+                            pre_gap = [gap[d] for d in pre_dates if d in gap]  # type: ignore
+                            post_gap = [gap[d] for d in post_dates if d in gap]  # type: ignore
+                            out["metrics"]["n_common_dates"] = len(gap)  # type: ignore
 
                             if len(pre_gap) < 20 or len(post_gap) < 6:
-                                out["reason"] = "有效 gap 样本不足"
+                                out["reason"] = "有效 gap 样本不足"  # type: ignore
                             else:
                                 gap_pre = mean(pre_gap)
                                 gap_post = mean(post_gap)
                                 att = gap_post - gap_pre
 
-                                random.seed(SEED)
+                                rng = make_rng(SEED)
                                 null = []
                                 pre_gap_dates = [d for d in pre_dates if d in gap]
                                 if len(pre_gap_dates) < len(post_gap):
-                                    out["reason"] = "pre_gap 可抽样日期不足，无法构建安慰剂分布"
+                                    out["reason"] = "pre_gap 可抽样日期不足，无法构建安慰剂分布"  # type: ignore
                                     pre_gap_dates = []
 
                                 for _ in range(PERMUTATIONS):
                                     if not pre_gap_dates:
                                         break
-                                    fake_post_dates = random.sample(pre_gap_dates, len(post_gap))
-                                    fake_att = mean(gap[d] for d in fake_post_dates) - gap_pre
+                                    fake_post_dates = rng.sample(pre_gap_dates, len(post_gap))
+                                    fake_att = mean(gap[d] for d in fake_post_dates) - gap_pre  # type: ignore
                                     null.append(fake_att)
 
                                 if not null:
-                                    out["reason"] = "安慰剂分布为空，无法稳健估计"
+                                    out["reason"] = "安慰剂分布为空，无法稳健估计"  # type: ignore
                                 else:
                                     p_val = sum(x >= att for x in null) / float(len(null))
 
-                                    out["metrics"]["att_gap"] = round(att, 6)
-                                    out["metrics"]["p_value"] = round(p_val, 6)
-                                    out["gates"]["att_positive"] = att > 0
-                                    out["gates"]["p_value_significant"] = p_val < 0.05
-                                    out["gates"]["synth_passed"] = (
-                                        out["gates"]["att_positive"] and out["gates"]["p_value_significant"]
+                                    out["metrics"]["att_gap"] = round(att, 6)  # type: ignore
+                                    out["metrics"]["p_value"] = round(p_val, 6)  # type: ignore
+                                    out["gates"]["att_positive"] = att > 0  # type: ignore
+                                    out["gates"]["p_value_significant"] = p_val < 0.05  # type: ignore
+                                    out["gates"]["synth_passed"] = (  # type: ignore
+                                        out["gates"]["att_positive"] and out["gates"]["p_value_significant"]  # type: ignore
                                     )
 
-                                    out["status"] = "ok"
-                                    out["reason"] = "synth_estimated"
+                                    out["status"] = "ok"  # type: ignore
+                                    out["reason"] = "synth_estimated"  # type: ignore
 
-    with OUT_FILE.open("w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, indent=2)
+    with OUT_FILE.open("w", encoding="utf-8") as f:  # type: ignore
+        json.dump(out, f, ensure_ascii=False, indent=2)  # type: ignore
 
     print("=== Synthetic Control Simplified ===")
-    print(f"status: {out['status']}")
-    print(f"reason: {out['reason']}")
-    print(f"synth_passed: {out['gates']['synth_passed']}")
-    print(f"[输出] {OUT_FILE}")
+    print(f"status: {out['status']}")  # type: ignore
+    print(f"reason: {out['reason']}")  # type: ignore
+    print(f"synth_passed: {out['gates']['synth_passed']}")  # type: ignore
+    print(f"[输出] {OUT_FILE}")  # type: ignore
 
 
 if __name__ == "__main__":

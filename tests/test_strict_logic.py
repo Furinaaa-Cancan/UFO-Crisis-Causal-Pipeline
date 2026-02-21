@@ -5,7 +5,9 @@ from datetime import timedelta
 from pathlib import Path
 
 import causal_analyzer
+import control_panel_builder
 import model_did
+import model_synth_control
 import panel_pipeline
 import scraper
 import strict_reviewer
@@ -195,6 +197,22 @@ class TestStrictLogic(unittest.TestCase):
                 panel_pipeline.PANEL_FILE = old_pipeline_panel
             self.assertEqual(len(rows2), 1)
             self.assertEqual(float(rows2[0]["crisis_count"]), 3.0)
+
+    def test_keyword_matching_avoids_substring_false_positive(self):
+        self.assertFalse(control_panel_builder.keyword_match("he said this today", {"ai"}))
+        self.assertTrue(control_panel_builder.keyword_match("AI policy update", {"ai"}))
+
+        self.assertEqual(scraper.keyword_hits("forward guidance update", ["war"]), [])
+        self.assertEqual(scraper.keyword_hits("war update", ["war"]), ["war"])
+
+    def test_synth_pre_dates_exclude_shock_day(self):
+        start = causal_analyzer.parse_date("2026-01-01")
+        us_dates = [start + timedelta(days=i) for i in range(10)]
+        shocks = [start + timedelta(days=4)]  # 2026-01-05
+        pre_dates, post_dates = model_synth_control.split_pre_post_dates(us_dates, shocks, post_horizon_days=7)
+
+        self.assertNotIn(start + timedelta(days=4), pre_dates)
+        self.assertIn(start + timedelta(days=5), post_dates)
 
     def test_progress_earliest_ready_date_considers_shock_gap(self):
         start = causal_analyzer.parse_date("2026-01-01")
