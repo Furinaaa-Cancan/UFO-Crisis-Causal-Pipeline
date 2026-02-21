@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 import causal_analyzer
+import model_did
 import panel_pipeline
 import scraper
 import strict_reviewer
@@ -136,6 +137,10 @@ class TestStrictLogic(unittest.TestCase):
     def test_shock_threshold_uses_absolute_floor(self):
         self.assertEqual(causal_analyzer.compute_shock_threshold([1.0, 1.0, 1.0]), 2.0)
         self.assertEqual(panel_pipeline.compute_shock_threshold([]), 2.0)
+
+    def test_did_min_distance_handles_empty_shocks(self):
+        d = causal_analyzer.parse_date("2026-02-21")
+        self.assertGreater(model_did.min_distance_to_shocks(d, []), 1000)
 
 
 if __name__ == "__main__":

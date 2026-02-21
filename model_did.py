@@ -178,6 +178,12 @@ def evaluate_window(
     }
 
 
+def min_distance_to_shocks(d: date, shocks: List[date]) -> int:
+    if not shocks:
+        return 10**9
+    return min(abs((d - s).days) for s in shocks)
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="DID（准实验）")
     p.add_argument(
@@ -228,7 +234,7 @@ def main() -> None:
         shock_set = set(shocks)
         placebo_pool = [
             d for d in dates
-            if d not in shock_set and min(abs((d - s).days) for s in shocks) > args.placebo_buffer_days
+            if d not in shock_set and min_distance_to_shocks(d, shocks) > args.placebo_buffer_days
         ]
 
         out["shock_threshold"] = round(thr, 6)
