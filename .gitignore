@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 .DS_Store
 ._*
+pyrightconfig.json
+.pyre_configuration
+data/fig_*.png
 
 data/scraped_news.json
 data/causal_panel.json
@@ -16,5 +19,3 @@ data/model_synth_control_report.json
 data/control_panels/control_panel_build_report.json
 data/control_panels/control_topics.csv
 data/control_panels/country_controls.csv
-._*
-__pycache__/
