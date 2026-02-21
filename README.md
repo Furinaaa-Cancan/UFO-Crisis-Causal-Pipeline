@@ -140,6 +140,8 @@ python causal_analyzer.py
 - 实时样本是否满足因果推断所需样本量
 - 审慎结论（因果 / 仅相关 / 证据不足）
 
+备注：实时样本覆盖门槛采用 `min(180, lookback_days)`，避免配置窗口与审批门槛不一致导致“理论上不可达”。
+
 ### 5. 启用长期面板（升级版）
 `causal_analyzer.py` 现在会把当前 `scraped_news.json` 自动写入 `data/causal_panel.json`（按日期+policy去重）。
 

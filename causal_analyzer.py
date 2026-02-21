@@ -37,6 +37,7 @@ SEED = 20260221
 PERMUTATIONS = 20000
 WINDOWS = (7, 14, 30)
 SHOCK_COUNT_FLOOR = 2.0
+DEFAULT_SCRAPER_LOOKBACK = 120
 
 CONTROL_TOPIC_KEYWORDS = {
     "economy": {
@@ -279,6 +280,8 @@ def analyze_scraped(scraped_path: Path) -> ScrapedStats:
     ufo_rows = payload.get("ufo_news", [])
     crisis_rows = payload.get("crisis_news", [])
     policy = payload.get("policy", "unknown")
+    lookback_days = int(payload.get("lookback_days", DEFAULT_SCRAPER_LOOKBACK) or DEFAULT_SCRAPER_LOOKBACK)
+    coverage_target = min(180, max(30, lookback_days))
 
     dates = []
     for row in ufo_rows + crisis_rows:
@@ -305,14 +308,14 @@ def analyze_scraped(scraped_path: Path) -> ScrapedStats:
     end = max(dates)
     coverage_days = (end - start).days + 1
 
-    if len(crisis_rows) < 10 or len(ufo_rows) < 30 or coverage_days < 180:
+    if len(crisis_rows) < 10 or len(ufo_rows) < 30 or coverage_days < coverage_target:
         fail_reasons = []
         if len(crisis_rows) < 10:
             fail_reasons.append(f"crisis={len(crisis_rows)} (<10)")
         if len(ufo_rows) < 30:
             fail_reasons.append(f"ufo={len(ufo_rows)} (<30)")
-        if coverage_days < 180:
-            fail_reasons.append(f"覆盖天数={coverage_days} (<180)")
+        if coverage_days < coverage_target:
+            fail_reasons.append(f"覆盖天数={coverage_days} (<{coverage_target})")
         reason = f"样本不足：{' 或 '.join(fail_reasons)}"
         return ScrapedStats(
             policy=policy,

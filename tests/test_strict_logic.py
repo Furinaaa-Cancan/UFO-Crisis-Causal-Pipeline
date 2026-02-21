@@ -142,6 +142,22 @@ class TestStrictLogic(unittest.TestCase):
         d = causal_analyzer.parse_date("2026-02-21")
         self.assertGreater(model_did.min_distance_to_shocks(d, []), 1000)
 
+    def test_analyze_scraped_uses_reachable_coverage_target_from_lookback(self):
+        # With lookback=60, coverage target should be 60 (not hard-coded 180).
+        payload = {
+            "policy": "strict-balanced",
+            "lookback_days": 60,
+            "ufo_news": [{"date": "2026-01-01", "title": "ufo"} for _ in range(29)] + [{"date": "2026-03-01", "title": "ufo"}],
+            "crisis_news": [{"date": "2026-01-15", "title": "crisis"} for _ in range(9)] + [{"date": "2026-02-20", "title": "crisis"}],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            fp = Path(tmp) / "scraped.json"
+            fp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            stats = causal_analyzer.analyze_scraped(fp)
+
+        # crisis/ufo counts meet thresholds and date span is 60+ days, so this gate should be reachable.
+        self.assertTrue(stats.sufficient)
+
 
 if __name__ == "__main__":
     unittest.main()
