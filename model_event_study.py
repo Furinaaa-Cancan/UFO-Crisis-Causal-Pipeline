@@ -59,8 +59,10 @@ def read_rows(policy: str = "strict-balanced") -> List[dict]:
         return []
     with PANEL_FILE.open("r", encoding="utf-8") as f:
         rows = json.load(f).get("rows", [])
+    run_day_rows = [r for r in rows if r.get("date_scope") == "run_day_only"]
+    effective_rows = run_day_rows if run_day_rows else rows
     by_date = {}
-    for r in rows:
+    for r in effective_rows:
         if r.get("policy") == policy and r.get("date"):
             by_date[r["date"]] = r
     return [by_date[d] for d in sorted(by_date)]

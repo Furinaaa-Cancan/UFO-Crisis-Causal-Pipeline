@@ -98,7 +98,9 @@ def load_panel_rows(policy: str) -> List[dict]:
     with PANEL_FILE.open("r", encoding="utf-8") as f:
         payload = json.load(f)
     rows = payload.get("rows", [])
-    filtered = [r for r in rows if r.get("policy") == policy]
+    run_day_rows = [r for r in rows if r.get("date_scope") == "run_day_only"]
+    effective_rows = run_day_rows if run_day_rows else rows
+    filtered = [r for r in effective_rows if r.get("policy") == policy]
     by_date: Dict[str, dict] = {}
     for row in filtered:
         by_date[row.get("date", "")] = row

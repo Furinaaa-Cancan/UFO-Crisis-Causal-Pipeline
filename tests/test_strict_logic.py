@@ -158,6 +158,43 @@ class TestStrictLogic(unittest.TestCase):
         # crisis/ufo counts meet thresholds and date span is 60+ days, so this gate should be reachable.
         self.assertTrue(stats.sufficient)
 
+    def test_panel_readers_prefer_run_day_rows(self):
+        panel_payload = {
+            "rows": [
+                {"date": "2026-02-20", "policy": "strict-balanced", "ufo_count": 9, "crisis_count": 9},  # legacy
+                {
+                    "date": "2026-02-20",
+                    "policy": "strict-balanced",
+                    "ufo_count": 2,
+                    "crisis_count": 3,
+                    "date_scope": "run_day_only",
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            panel_path = Path(tmp) / "panel.json"
+            panel_path.write_text(json.dumps(panel_payload, ensure_ascii=False), encoding="utf-8")
+
+            # model_did reader
+            old_panel_file = model_did.PANEL_FILE
+            model_did.PANEL_FILE = panel_path
+            try:
+                rows = model_did.read_panel_rows("strict-balanced")
+            finally:
+                model_did.PANEL_FILE = old_panel_file
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(float(rows[0]["ufo_count"]), 2.0)
+
+            # panel_pipeline reader
+            old_pipeline_panel = panel_pipeline.PANEL_FILE
+            panel_pipeline.PANEL_FILE = panel_path
+            try:
+                rows2 = panel_pipeline.load_panel_rows("strict-balanced")
+            finally:
+                panel_pipeline.PANEL_FILE = old_pipeline_panel
+            self.assertEqual(len(rows2), 1)
+            self.assertEqual(float(rows2[0]["crisis_count"]), 3.0)
+
 
 if __name__ == "__main__":
     unittest.main()

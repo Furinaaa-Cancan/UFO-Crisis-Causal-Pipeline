@@ -474,8 +474,11 @@ def upsert_panel_row(panel: dict, row: dict) -> bool:
 
 def _select_panel_rows(panel: dict, prefer_policy: str) -> Tuple[str, List[dict]]:
     rows = panel.get("rows", [])
+    run_day_rows = [r for r in rows if r.get("date_scope") == "run_day_only"]
+    effective_rows = run_day_rows if run_day_rows else rows
+
     grouped = defaultdict(list)
-    for r in rows:
+    for r in effective_rows:
         grouped[r.get("policy", "unknown")].append(r)
 
     if prefer_policy in grouped:

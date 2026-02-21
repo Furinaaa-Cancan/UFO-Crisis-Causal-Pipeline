@@ -166,6 +166,7 @@ python causal_analyzer.py --fail-on-reject
 - 置换检验（随机冲击日对照）
 - 安慰剂检验（控制议题波动）
 - 冲击日阈值下限（`shock_threshold >= 2`，避免把轻微噪声当作冲击）
+- 默认优先读取 `date_scope=run_day_only` 面板行，避免旧版历史口径污染
 - 有效观测覆盖率闸门（避免“日期跨度足够但中间大量缺失”的误判）
 - 审批报告自动写入 `data/causal_report.json`（含每条审批门槛通过状态）
 
