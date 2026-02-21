@@ -36,6 +36,7 @@ EVENTS_V2_FILE = os.path.join(OUTPUT_DIR, "events_v2.json")
 REQUEST_TIMEOUT = 20
 REQUEST_RETRIES = 3
 LOOKBACK_DAYS_DEFAULT = 120
+FULL_HISTORY_LOOKBACK_DAYS = 36500
 WINDOW_DAYS_DEFAULT = 60
 STRICT_MIN_SCORE = 65
 LENIENT_MIN_SCORE = 45
@@ -193,6 +194,178 @@ POLICY_CONFIGS = {
         "require_crisis_hard_signal": False,
     },
 }
+
+
+def _parse_item_date(value):
+    if not value:
+        return None
+    return parse_iso_date(str(value))
+
+
+def summarize_date_span(items):
+    dates = []
+    for item in items:
+        d = _parse_item_date(item.get("date"))  # type: ignore
+        if d is not None:
+            dates.append(d)
+    if not dates:
+        return {
+            "min_date": None,
+            "max_date": None,
+            "span_days": 0,
+            "dated_items": 0,
+        }
+    lo = min(dates)
+    hi = max(dates)
+    return {
+        "min_date": lo.isoformat(),  # type: ignore
+        "max_date": hi.isoformat(),  # type: ignore
+        "span_days": (hi - lo).days + 1,
+        "dated_items": len(dates),
+    }
+
+
+def build_coverage_audit(
+    raw_items,
+    unique_items,
+    candidates,
+    accepted_events,
+    rejected_items,
+    source_stats,
+    lookback_days,
+):
+    today = datetime.now(timezone.utc).date()  # type: ignore
+    expected_start = (today - timedelta(days=lookback_days)).isoformat()  # type: ignore
+    expected_end = today.isoformat()  # type: ignore
+
+    reason_counter = Counter()
+    stale_count = 0
+    for row in rejected_items:
+        reason = str(row.get("reason", ""))  # type: ignore
+        if not reason:
+            continue
+        for token in reason.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            reason_counter[token] += 1  # type: ignore
+            if token == "stale_item_outside_lookback":
+                stale_count += 1
+
+    by_source = {}
+    for item in raw_items:
+        src = item.get("source", "unknown")  # type: ignore
+        rec = by_source.setdefault(src, {"count": 0, "dates": []})  # type: ignore
+        rec["count"] += 1  # type: ignore
+        d = _parse_item_date(item.get("date"))  # type: ignore
+        if d is not None:
+            rec["dates"].append(d)  # type: ignore
+
+    freshness_cutoff = today - timedelta(days=3)  # type: ignore
+    source_windows = []
+    fresh_sources = 0
+    for row in source_stats:
+        source_name = row.get("source", "unknown")  # type: ignore
+        dates = sorted(by_source.get(source_name, {}).get("dates", []))
+        if dates:
+            min_date = dates[0]
+            max_date = dates[-1]
+            if max_date >= freshness_cutoff:
+                fresh_sources += 1
+            source_windows.append({
+                "source": source_name,
+                "status": row.get("status"),  # type: ignore
+                "item_count": int(row.get("item_count", 0) or 0),  # type: ignore
+                "min_date": min_date.isoformat(),  # type: ignore
+                "max_date": max_date.isoformat(),  # type: ignore
+                "span_days": (max_date - min_date).days + 1,
+                "has_recent_items": bool(max_date >= freshness_cutoff),
+                "used_fallback": bool(row.get("used_fallback", False)),  # type: ignore
+            })
+        else:
+            source_windows.append({
+                "source": source_name,
+                "status": row.get("status"),  # type: ignore
+                "item_count": int(row.get("item_count", 0) or 0),  # type: ignore
+                "min_date": None,
+                "max_date": None,
+                "span_days": 0,
+                "has_recent_items": False,
+                "used_fallback": bool(row.get("used_fallback", False)),  # type: ignore
+            })
+
+    source_windows.sort(key=lambda x: ((x["status"] != "ok"), x["source"]))  # type: ignore
+    available_sources = sum(1 for r in source_stats if r.get("status") != "failed")  # type: ignore
+    coverage_confidence = (
+        "high"
+        if (available_sources >= max(1, int(len(source_stats) * 0.9)) and fresh_sources >= max(1, int(len(source_stats) * 0.7)))
+        else "medium"
+        if (available_sources >= max(1, int(len(source_stats) * 0.75)) and fresh_sources >= max(1, int(len(source_stats) * 0.5)))
+        else "low"
+    )
+
+    return {
+        "window": {
+            "expected_start": expected_start,
+            "expected_end": expected_end,
+            "lookback_days": lookback_days,
+        },
+        "date_spans": {
+            "raw_items": summarize_date_span(raw_items),
+            "unique_items": summarize_date_span(unique_items),
+            "candidates": summarize_date_span(candidates),
+            "accepted_events": summarize_date_span(accepted_events),
+        },
+        "rejections": {
+            "stale_item_outside_lookback": stale_count,
+            "top_reasons": [
+                {"reason": reason, "count": count}
+                for reason, count in reason_counter.most_common(10)
+            ],
+        },
+        "source_window_summary": {
+            "sources_total": len(source_stats),
+            "sources_available": available_sources,
+            "sources_with_recent_items": fresh_sources,
+            "coverage_confidence": coverage_confidence,
+        },
+        "source_windows": source_windows,
+    }
+
+
+def print_coverage_summary(coverage):
+    summary = coverage.get("source_window_summary", {})  # type: ignore
+    spans = coverage.get("date_spans", {})  # type: ignore
+    accepted_span = spans.get("accepted_events", {})  # type: ignore
+    raw_span = spans.get("raw_items", {})  # type: ignore
+
+    t = Table(title="时间覆盖审计", box=box.SIMPLE)  # type: ignore
+    t.add_column("指标", width=34)
+    t.add_column("值", width=50)
+    t.add_row(
+        "目标窗口",
+        f"{coverage.get('window', {}).get('expected_start')} ~ {coverage.get('window', {}).get('expected_end')}",  # type: ignore
+    )
+    t.add_row(
+        "原始条目时间范围",
+        f"{raw_span.get('min_date')} ~ {raw_span.get('max_date')} ({raw_span.get('span_days', 0)}天)",  # type: ignore
+    )
+    t.add_row(
+        "通过事件时间范围",
+        f"{accepted_span.get('min_date')} ~ {accepted_span.get('max_date')} ({accepted_span.get('span_days', 0)}天)",  # type: ignore
+    )
+    t.add_row(
+        "来源近期覆盖",
+        (
+            f"{summary.get('sources_with_recent_items', 0)}/{summary.get('sources_total', 0)} "
+            f"(confidence={summary.get('coverage_confidence', 'low')})"
+        ),
+    )
+    t.add_row(
+        "超窗剔除数",
+        str(coverage.get("rejections", {}).get("stale_item_outside_lookback", 0)),  # type: ignore
+    )
+    console.print(t)  # type: ignore
 
 
 def normalize_text(text):
@@ -413,7 +586,7 @@ def request_with_retry(url, headers):
     return None, last_error or "unknown request error"
 
 
-def fetch_rss_url(url, source):
+def fetch_rss_url(url, source, max_items_per_source):
     resp, err = request_with_retry(url, HEADERS)
     if resp is None:
         return None, err
@@ -423,7 +596,7 @@ def fetch_rss_url(url, source):
         soup = BeautifulSoup(resp.content, "xml")  # type: ignore
         entries = soup.find_all("item") or soup.find_all("entry")  # type: ignore
 
-        for entry in entries[:MAX_ITEMS_PER_SOURCE]:  # type: ignore
+        for entry in entries[:max_items_per_source]:  # type: ignore
             title_tag = entry.find("title")  # type: ignore
             date_tag = (
                 entry.find("pubDate")  # type: ignore
@@ -479,7 +652,7 @@ def fetch_rss_url(url, source):
     return items, None
 
 
-def fetch_rss(source):
+def fetch_rss(source, max_items_per_source):
     urls_to_try = [source["url"]]  # type: ignore
     if source.get("fallback_url"):  # type: ignore
         urls_to_try.append(source["fallback_url"])  # type: ignore
@@ -488,7 +661,7 @@ def fetch_rss(source):
     attempted_urls = []
     for idx, attempt_url in enumerate(urls_to_try):
         attempted_urls.append(attempt_url)
-        items, err = fetch_rss_url(attempt_url, source)
+        items, err = fetch_rss_url(attempt_url, source, max_items_per_source)
         if items is None:
             last_error = err
             continue
@@ -513,7 +686,7 @@ def fetch_rss(source):
     }
 
 
-def fetch_reddit_json(source):
+def fetch_reddit_json(source, max_items_per_source):
     resp, err = request_with_retry(source["url"], REDDIT_HEADERS)  # type: ignore
     if resp is None:
         return {
@@ -527,7 +700,7 @@ def fetch_reddit_json(source):
     items = []
     try:
         posts = resp.json().get("data", {}).get("children", [])  # type: ignore
-        for post in posts[:MAX_ITEMS_PER_SOURCE]:  # type: ignore
+        for post in posts[:max_items_per_source]:  # type: ignore
             p = post.get("data", {})  # type: ignore
             title = normalize_text(p.get("title", ""))  # type: ignore
             if not title:
@@ -577,10 +750,10 @@ def fetch_reddit_json(source):
     }
 
 
-def fetch_source(source):
+def fetch_source(source, max_items_per_source):
     if source.get("type") == "reddit_json":  # type: ignore
-        return fetch_reddit_json(source)
-    return fetch_rss(source)
+        return fetch_reddit_json(source, max_items_per_source)
+    return fetch_rss(source, max_items_per_source)
 
 
 def deduplicate_within_source(items):
@@ -1216,7 +1389,12 @@ def print_source_health_summary(source_health):
     console.print(t)  # type: ignore
 
 
-def scrape_all(policy_name=POLICY_STRICT, lookback_days=LOOKBACK_DAYS_DEFAULT, max_workers=MAX_WORKERS_DEFAULT):
+def scrape_all(
+    policy_name=POLICY_STRICT,
+    lookback_days=LOOKBACK_DAYS_DEFAULT,
+    max_workers=MAX_WORKERS_DEFAULT,
+    max_items_per_source=MAX_ITEMS_PER_SOURCE,
+):
     policy_name, policy = resolve_policy(policy_name)
     source_meta, all_sources, sources = load_source_config()
     all_items = []
@@ -1226,7 +1404,10 @@ def scrape_all(policy_name=POLICY_STRICT, lookback_days=LOOKBACK_DAYS_DEFAULT, m
 
     worker_count = max(1, min(max_workers, len(sources)))
     with ThreadPoolExecutor(max_workers=worker_count) as pool:  # type: ignore
-        futures = {pool.submit(fetch_source, src): src for src in sources}
+        futures = {
+            pool.submit(fetch_source, src, max_items_per_source): src
+            for src in sources
+        }
 
         with Progress(  # type: ignore
             SpinnerColumn(),
@@ -1316,9 +1497,19 @@ def scrape_all(policy_name=POLICY_STRICT, lookback_days=LOOKBACK_DAYS_DEFAULT, m
     ufo_news, crisis_news = split_and_sort_news(accepted_events)
     source_stats = [source_records.get(src["name"]) for src in sources if source_records.get(src["name"])]  # type: ignore
     source_health = build_source_health_report(source_meta, all_sources, sources, source_stats)
+    coverage_audit = build_coverage_audit(
+        raw_items=all_items,
+        unique_items=unique_items,
+        candidates=candidates,
+        accepted_events=accepted_events,
+        rejected_items=rejected_items,
+        source_stats=source_stats,
+        lookback_days=lookback_days,
+    )
 
     print_source_summary(sources, counts, errors)
     print_source_health_summary(source_health)
+    print_coverage_summary(coverage_audit)
     print_quality_summary(
         raw_count=len(all_items),
         unique_count=len(unique_items),
@@ -1332,9 +1523,11 @@ def scrape_all(policy_name=POLICY_STRICT, lookback_days=LOOKBACK_DAYS_DEFAULT, m
         "strict_mode": policy_name != POLICY_LENIENT,
         "policy": policy_name,
         "lookback_days": lookback_days,
+        "max_items_per_source": max_items_per_source,
         "source_count": len(sources),
         "source_stats": source_stats,
         "source_health": source_health,
+        "coverage_audit": coverage_audit,
         "stats": {
             "raw_items": len(all_items),
             "unique_items": len(unique_items),
@@ -1587,6 +1780,11 @@ def parse_args():
         help=f"新闻回看窗口天数（默认 {LOOKBACK_DAYS_DEFAULT}）",
     )
     parser.add_argument(
+        "--full-history",
+        action="store_true",
+        help=f"历史全窗口模式（等价于 --lookback-days {FULL_HISTORY_LOOKBACK_DAYS}）",
+    )
+    parser.add_argument(
         "--window-days",
         type=int,
         default=WINDOW_DAYS_DEFAULT,
@@ -1597,6 +1795,12 @@ def parse_args():
         type=int,
         default=MAX_WORKERS_DEFAULT,
         help=f"并发抓取线程数（默认 {MAX_WORKERS_DEFAULT}）",
+    )
+    parser.add_argument(
+        "--max-items-per-source",
+        type=int,
+        default=MAX_ITEMS_PER_SOURCE,
+        help=f"每个来源最多读取条目数（默认 {MAX_ITEMS_PER_SOURCE}）",
     )
     return parser.parse_args()
 
@@ -1610,15 +1814,20 @@ def main():
     else:
         policy_name = POLICY_STRICT
 
+    lookback_days = FULL_HISTORY_LOOKBACK_DAYS if args.full_history else args.lookback_days
+    lookback_days = max(7, lookback_days)
+    max_items_per_source = max(5, args.max_items_per_source)
+
     console.print(  # type: ignore
         f"[bold cyan]开始抓取最新新闻数据（policy={policy_name}, "
-        f"lookback={args.lookback_days}天）...[/bold cyan]\n"
+        f"lookback={lookback_days}天, max_items_per_source={max_items_per_source}）...[/bold cyan]\n"
     )
 
     data = scrape_all(
         policy_name=policy_name,
-        lookback_days=max(7, args.lookback_days),
+        lookback_days=lookback_days,
         max_workers=max(1, args.max_workers),
+        max_items_per_source=max_items_per_source,
     )
 
     ufo_count = len(data.get("ufo_news", []))  # type: ignore

@@ -4,3 +4,4 @@ python-dateutil==2.9.0
 lxml==5.1.0
 rich==13.7.1
 feedparser>=6.0.0
+scikit-learn>=1.4.0

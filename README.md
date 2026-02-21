@@ -31,12 +31,13 @@
 ```
 外星人事件/
 ├── README.md              # 本文件
-├── requirements.txt       # Python依赖（requests/bs4/dateutil/lxml/rich）
+├── requirements.txt       # Python依赖（requests/bs4/dateutil/lxml/rich/scikit-learn）
 ├── scraper.py             # 严格真实性新闻抓取器（评分+交叉佐证+过滤）
 ├── causal_analyzer.py     # 因果检验器（置换检验+方向性检验+样本充分性诊断）
 ├── panel_pipeline.py      # 日常累计管道（抓取+审批+进度）
 ├── research_unified_pipeline.py # 统一研究总管道（双档+对照构建+严格评审+模型）
 ├── control_panel_builder.py # 对照面板构建器（topic/country 自动更新）
+├── model_causal_ml.py     # 因果机器学习（DML + 因果森林代理）
 ├── strict_reviewer.py     # 统一严格评审器（输出研究等级与闸门状态）
 ├── STRICT_GATES.md        # 严格闸门定义（L0-L4）
 ├── pre_registration.md    # 预注册草案
@@ -53,6 +54,7 @@
     ├── model_did_report.json # DID 准实验输出
     ├── model_event_study_report.json # 事件研究动态效应输出
     ├── model_synth_control_report.json # 合成控制简化输出
+    ├── model_causal_ml_report.json # 因果机器学习（DML+因果森林代理）输出
     ├── research_variable_dictionary.json # 变量字典
     └── control_panels/    # 对照组面板（topic/country + 来源配置）
 ```
@@ -100,6 +102,9 @@ python scraper.py --lenient
 # 调整回看窗口 / 关联窗口
 python scraper.py --lookback-days 90 --window-days 45
 
+# 历史全窗口 + 增大单源抓取上限（用于历史回填）
+python scraper.py --full-history --max-items-per-source 300
+
 # 调整并发
 python scraper.py --max-workers 8
 ```
@@ -107,6 +112,7 @@ python scraper.py --max-workers 8
 > 爬虫会并发抓取 `sources.json` 中所有 `active: true` 的来源，并输出：
 > - 各来源抓取摘要表（含成功/失败状态）
 > - 来源健康审计（可用率/fallback命中/错误类型/替代建议）
+> - 时间覆盖审计（目标窗口、原始时间跨度、通过样本时间跨度、来源近期覆盖率）
 > - 真实性过滤摘要（原始条目数、过滤后条目数、主要拒绝原因）
 > - 关联时间窗口内的危机↔UFO关联对（默认60天）
 > - 与 `events_v2.json` 历史数据集的交叉验证结果
@@ -218,6 +224,7 @@ python research_unified_pipeline.py --only-policy strict --model-policy strict
 - `data/model_did_report.json`
 - `data/model_event_study_report.json`
 - `data/model_synth_control_report.json`
+- `data/model_causal_ml_report.json`
 
 > 注意：模型脚本在样本不足或对照组缺失时会明确返回 `pending/blocked`，不会伪造因果结论。
 > 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，

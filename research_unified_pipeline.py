@@ -87,7 +87,12 @@ def main() -> None:
             raise SystemExit(code)
 
     if not args.skip_models:
-        for script in ("model_did.py", "model_event_study.py", "model_synth_control.py"):
+        for script in (
+            "model_did.py",
+            "model_event_study.py",
+            "model_synth_control.py",
+            "model_causal_ml.py",
+        ):
             code = run_cmd([py, script, "--policy", model_policy])
             if code != 0:
                 raise SystemExit(code)

@@ -7,6 +7,7 @@ from pathlib import Path
 import causal_analyzer
 import control_panel_builder
 import model_did
+import model_causal_ml
 import model_synth_control
 import panel_pipeline
 import scraper
@@ -285,6 +286,49 @@ class TestStrictLogic(unittest.TestCase):
         )
         self.assertFalse(passed3)
         self.assertTrue(same_day3)
+
+    def test_coverage_audit_includes_source_recency_summary(self):
+        raw_items = [
+            {"source": "A", "date": "2026-02-21", "title": "x"},
+            {"source": "A", "date": "2026-02-20", "title": "y"},
+            {"source": "B", "date": "2026-01-01", "title": "z"},
+        ]
+        source_stats = [
+            {"source": "A", "status": "ok", "item_count": 2, "used_fallback": False},
+            {"source": "B", "status": "ok", "item_count": 1, "used_fallback": False},
+        ]
+        coverage = scraper.build_coverage_audit(
+            raw_items=raw_items,
+            unique_items=raw_items,
+            candidates=raw_items,
+            accepted_events=[raw_items[0]],
+            rejected_items=[{"reason": "stale_item_outside_lookback"}],
+            source_stats=source_stats,
+            lookback_days=120,
+        )
+
+        self.assertEqual(coverage["rejections"]["stale_item_outside_lookback"], 1)
+        self.assertEqual(coverage["date_spans"]["raw_items"]["min_date"], "2026-01-01")
+        self.assertEqual(coverage["source_window_summary"]["sources_total"], 2)
+
+    def test_causal_ml_build_dataset_has_lag_features_and_treatment(self):
+        rows = []
+        start = causal_analyzer.parse_date("2026-01-01")
+        for i in range(20):
+            d = (start + timedelta(days=i)).isoformat()
+            rows.append({
+                "date": d,
+                "ufo_count": 1 if i % 3 == 0 else 0,
+                "crisis_count": 3 if i in (10, 12, 14, 16) else 0,
+                "control_total": 0,
+                "control_density_accepted": 0.0,
+            })
+
+        dataset, feature_names = model_causal_ml.build_dataset(rows, crisis_threshold=2.0)
+        treated = sum(int(r["t"]) for r in dataset)
+        self.assertGreater(len(feature_names), 8)
+        self.assertGreater(len(dataset), 5)
+        self.assertGreaterEqual(treated, 1)
 
 
 if __name__ == "__main__":

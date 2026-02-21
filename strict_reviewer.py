@@ -27,6 +27,7 @@ DUAL_REVIEW_FILE = DATA_DIR / "strict_dual_review.json"
 MODEL_DID_FILE = DATA_DIR / "model_did_report.json"
 MODEL_EVENT_FILE = DATA_DIR / "model_event_study_report.json"
 MODEL_SYNTH_FILE = DATA_DIR / "model_synth_control_report.json"
+MODEL_CAUSAL_ML_FILE = DATA_DIR / "model_causal_ml_report.json"
 OUT_FILE = DATA_DIR / "strict_review_snapshot.json"
 
 
@@ -64,6 +65,7 @@ def build_signature(summary: Dict[str, Any]) -> Dict[str, Any]:
         "did_passed": summary["quality"]["models"]["did_passed"],  # type: ignore
         "event_passed": summary["quality"]["models"]["event_passed"],  # type: ignore
         "synth_passed": summary["quality"]["models"]["synth_passed"],  # type: ignore
+        "causal_ml_passed": summary["quality"]["models"]["causal_ml_passed"],  # type: ignore
         "panel_observed_days": summary["quality"]["panel_observed_days"],  # type: ignore
         "panel_shock_days": summary["quality"]["panel_shock_days"],  # type: ignore
         "dual_status": summary["signals"]["dual_review_status"],  # type: ignore
@@ -122,6 +124,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     did = read_json(MODEL_DID_FILE)
     event = read_json(MODEL_EVENT_FILE)
     synth = read_json(MODEL_SYNTH_FILE)
+    causal_ml = read_json(MODEL_CAUSAL_ML_FILE)
     prev_snapshot = read_json(OUT_FILE)
 
     approval = causal.get("approval", {})  # type: ignore
@@ -197,10 +200,14 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     event_passed = bool(event.get("gates", {}).get("event_study_passed", False))  # type: ignore
     synth_status = synth.get("status", "missing")  # type: ignore
     synth_passed = bool(synth.get("gates", {}).get("synth_passed", False))  # type: ignore
+    causal_ml_status = causal_ml.get("status", "missing")  # type: ignore
+    causal_ml_passed = bool(causal_ml.get("gates", {}).get("causal_ml_passed", False))  # type: ignore
 
     models_estimated = did_status == "ok" and event_status == "ok" and synth_status == "ok"
     model_falsification_ok = did_passed and event_passed and synth_passed and did_neg_ctrl_available
-    falsification_passed = models_estimated and model_falsification_ok
+    # Causal ML is an additional check. If estimated and failed, treat as inconsistency.
+    causal_ml_consistent = causal_ml_status != "ok" or causal_ml_passed
+    falsification_passed = models_estimated and model_falsification_ok and causal_ml_consistent
 
     has_temporal_signal = (panel_observed_days > 0 and panel_shock_days > 0) or (n_ufo > 0 and n_crisis > 0)
 
@@ -243,6 +250,8 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
                 "event_passed": event_passed,
                 "synth_status": synth_status,
                 "synth_passed": synth_passed,
+                "causal_ml_status": causal_ml_status,
+                "causal_ml_passed": causal_ml_passed,
             },
         },
         "gates": {
@@ -301,6 +310,11 @@ def main() -> None:
     print(f"source_availability_rate: {report['quality']['source_availability_rate']:.4f}")  # type: ignore
     print(f"panel_observed_days: {report['quality']['panel_observed_days']}")  # type: ignore
     print(f"panel_shock_days: {report['quality']['panel_shock_days']}")  # type: ignore
+    print(
+        "causal_ml: "
+        f"{report['quality']['models']['causal_ml_status']} "
+        f"(passed={report['quality']['models']['causal_ml_passed']})"
+    )  # type: ignore
     print(f"[输出] {OUT_FILE}")  # type: ignore
 
 
