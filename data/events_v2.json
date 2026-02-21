@@ -1,0 +1,269 @@
+{
+  "_meta": {
+    "version": "3.0",
+    "last_updated": "2026-02-20",
+    "notes": "经严格核查的数据集。每条案例附置信度评级（HIGH/MEDIUM/LOW）及注释。",
+    "sources": ["维基百科", "NYT", "CNN", "BBC", "NPR", "CBS News", "PBS NewsHour", "Guardian", "Pentagon官方声明"]
+  },
+  "correlations": [
+    {
+      "id": "case_001",
+      "confidence": "HIGH",
+      "crisis": {
+        "date": "2017-12-01",
+        "title": "弗林认罪（穆勒通俄调查重大突破）",
+        "title_en": "Michael Flynn pleads guilty in Mueller probe",
+        "description": "前国家安全顾问迈克尔·弗林向FBI认罪，承认对俄罗斯接触撒谎，并同意配合穆勒调查。是特朗普通俄调查的最大突破，政治震动极大。",
+        "category": "法律/通俄调查",
+        "severity": 9,
+        "source_url": "https://www.nytimes.com/2017/12/01/us/politics/michael-flynn-guilty-russia-trump.html"
+      },
+      "ufo_event": {
+        "date": "2017-12-16",
+        "title": "《纽约时报》头版：五角大楼秘密UFO调查项目AATIP曝光",
+        "title_en": "NYT front page: Secret Pentagon UFO program AATIP revealed",
+        "description": "《纽约时报》头版曝光五角大楼长达10年的秘密UFO研究项目AATIP，附上海军飞行员拍摄的神秘飞行物视频。全球媒体轰动。",
+        "media_frenzy_score": 9,
+        "government_action": false,
+        "source_url": "https://www.nytimes.com/2017/12/16/us/politics/pentagon-program-ufo-harry-reid.html"
+      },
+      "gap_days": 15,
+      "notes": "日期均已核实。弗林认罪(12/1)→NYT报道(12/16)，间隔15天。NYT报道由记者独立调查，非政府主动披露。但时间上的紧密关联性显著。"
+    },
+    {
+      "id": "case_002",
+      "confidence": "MEDIUM",
+      "crisis": {
+        "date": "2019-07-25",
+        "title": "特朗普乌克兰通话丑闻 + 吹哨人投诉（弹劾调查序幕）",
+        "title_en": "Trump Ukraine call + whistleblower complaint filed",
+        "description": "特朗普与乌克兰总统泽连斯基通话，要求调查拜登父子。8月12日吹哨人正式投诉，引发弹劾调查。",
+        "category": "弹劾/丑闻",
+        "severity": 10,
+        "source_url": "https://en.wikipedia.org/wiki/First_impeachment_of_Donald_Trump"
+      },
+      "ufo_event": {
+        "date": "2019-09-18",
+        "title": "美国海军正式确认：UFO视频是真实的",
+        "title_en": "US Navy officially confirms UAP videos are real",
+        "description": "五角大楼发言人正式确认三段在网络流传的海军UFO视频的真实性，海军飞行员拍摄的'tic-tac'飞行物引发媒体狂潮。",
+        "media_frenzy_score": 8,
+        "government_action": true,
+        "source_url": "https://www.space.com/ufos-videos-declassified-navy-release.html"
+      },
+      "gap_days": 55,
+      "notes": "注意：海军确认(9/18)比弹劾正式宣布(9/24)早6天，是'同期'而非严格意义上的'事后'。弹劾调查正式宣布日期：2019-09-24。海军确认与弹劾调查启动几乎同步，属于同一时间窗口的关联事件。间隔55天基于乌克兰通话日期计算。"
+    },
+    {
+      "id": "case_003",
+      "confidence": "HIGH",
+      "crisis": {
+        "date": "2020-03-13",
+        "title": "COVID-19：特朗普宣布国家紧急状态，应对不力遭猛批",
+        "title_en": "Trump declares COVID-19 national emergency amid criticism",
+        "description": "COVID-19疫情在全美爆发，特朗普政府应对措施遭到广泛批评，检测试剂盒短缺、死亡人数攀升，政治压力空前。",
+        "category": "公共卫生危机/政治压力",
+        "severity": 10,
+        "source_url": "https://en.wikipedia.org/wiki/COVID-19_pandemic_in_the_United_States"
+      },
+      "ufo_event": {
+        "date": "2020-04-27",
+        "title": "五角大楼正式解密并公开三段UFO视频",
+        "title_en": "Pentagon officially declassifies and releases 3 UAP videos",
+        "description": "国防部正式解密并公开发布三段海军飞行员拍摄的UFO视频，声称'以消除公众对这些视频真实性的误解'。COVID-19危机最严峻时期。",
+        "media_frenzy_score": 9,
+        "government_action": true,
+        "source_url": "https://edition.cnn.com/2020/04/27/politics/pentagon-ufo-videos"
+      },
+      "gap_days": 45,
+      "notes": "五角大楼主动发布，官方理由是'消除误解'。发布时间恰好在COVID危机最严峻、特朗普遭受最猛烈批评的4月下旬。政府主动行为，置信度HIGH。"
+    },
+    {
+      "id": "case_004",
+      "confidence": "HIGH",
+      "crisis": {
+        "date": "2021-05-28",
+        "title": "共和党阻挠：参议院封杀1月6日国会骚乱独立调查委员会",
+        "title_en": "Senate Republicans filibuster Jan 6 independent commission",
+        "description": "参议院共和党人利用阻挠程序否决两党独立调查1月6日国会骚乱的委员会，引发宪政危机讨论和公众愤怒。",
+        "category": "宪政危机/国会政治",
+        "severity": 8,
+        "source_url": "https://www.bbc.com/news/world-us-canada-57297929"
+      },
+      "ufo_event": {
+        "date": "2021-06-25",
+        "title": "五角大楼发布UAP报告：144起不明事件无法解释",
+        "title_en": "Pentagon UAP report: 144 unexplained incidents",
+        "description": "美国情报界发布《初步评估：不明空中现象》报告，记录144次无法解释的UAP遭遇事件，引发媒体广泛报道。报告是国会在FY2021 NDAA中强制要求的。",
+        "media_frenzy_score": 9,
+        "government_action": true,
+        "source_url": "https://www.nytimes.com/2021/06/25/us/politics/pentagon-ufo-report.html"
+      },
+      "gap_days": 28,
+      "notes": "UAP报告发布日期由国会FY2021 NDAA（2020年12月通过）强制规定，需在180天内发布。但选择具体日期(6/25)是政府的主动选择，与1月6日委员会争议发生在同一月份。"
+    },
+    {
+      "id": "case_005",
+      "confidence": "HIGH",
+      "crisis": {
+        "date": "2023-01-09",
+        "title": "拜登机密文件丑闻曝光",
+        "title_en": "Biden classified documents scandal revealed",
+        "description": "CBS新闻曝光在拜登宾州大学办公室发现机密文件，随后在其特拉华州私宅又发现更多，与特朗普机密文件案形成对比，成为重大政治丑闻。",
+        "category": "法律/丑闻",
+        "severity": 8,
+        "source_url": "https://www.cbsnews.com/news/biden-classified-documents-found-timeline/"
+      },
+      "ufo_event": {
+        "date": "2023-02-04",
+        "title": "中国侦察气球被击落 + 随后疯狂击落多个'UFO'",
+        "title_en": "Chinese spy balloon shot down + series of UFO shootdowns",
+        "description": "美军击落中国侦察气球(2/4)，随后数天内接连击落多个不明飞行物(2/10、2/11、2/12)，媒体掀起外星人猜测热潮，完全主导新闻周期。",
+        "media_frenzy_score": 10,
+        "government_action": true,
+        "source_url": "https://www.washingtonpost.com/politics/2023/02/16/biden-ufos-shoot-down/"
+      },
+      "gap_days": 26,
+      "notes": "中国气球是真实地缘政治事件。但拜登政府在机密文件丑闻爆发后26天开始大量击落不明飞行物（超出历史常规频率），且对外'无法解释来源'的表述显著放大了UFO猜测。"
+    },
+    {
+      "id": "case_006",
+      "confidence": "MEDIUM",
+      "crisis": {
+        "date": "2023-06-09",
+        "title": "特朗普被联邦大陪审团起诉：37项联邦罪名（美国史上首次）",
+        "title_en": "Trump federally indicted — first former president ever",
+        "description": "特朗普在机密文件案中被联邦大陪审团起诉，共37项联邦罪名，成为美国历史上首位被联邦起诉的前总统，引发全国性政治地震。",
+        "category": "法律/起诉",
+        "severity": 10,
+        "source_url": "https://www.bbc.com/news/world-us-canada-65843376"
+      },
+      "ufo_event": {
+        "date": "2023-07-26",
+        "title": "国会UFO听证会：举报人格鲁施爆料政府藏有'非人类生物遗骸'",
+        "title_en": "Congress UFO hearing: Grusch claims government has non-human biologics",
+        "description": "前情报官员David Grusch在众议院国家安全小组委员会作证，声称美国政府秘密拥有坠毁飞碟残骸和'非人类生物遗骸'，引发全球媒体轰动。",
+        "media_frenzy_score": 10,
+        "government_action": false,
+        "source_url": "https://www.npr.org/2023/07/27/1190390376/ufo-hearing-non-human-biologics-uaps"
+      },
+      "gap_days": 47,
+      "notes": "格鲁施于2023年4月首次公开其说法（早于起诉），国会听证是立法机构安排，非行政主导。但听证恰在特朗普首次联邦起诉后47天举行。置信度MEDIUM：关联存在但非政府主动操控。"
+    },
+    {
+      "id": "case_007",
+      "confidence": "HIGH",
+      "crisis": {
+        "date": "2025-12-23",
+        "title": "DOJ发布爱泼斯坦文件：内容严重不完整，特朗普被多次点名",
+        "title_en": "DOJ releases Epstein files — heavily incomplete, Trump mentioned",
+        "description": "司法部发布爱泼斯坦相关文件，但超过200万份文件仍未公开。已公开文件中特朗普名字多次出现。AG彭博蒂被议员追究，公众要求完整披露，政治压力持续至2026年1月。",
+        "category": "性丑闻/法律/政治压力",
+        "severity": 9,
+        "source_url": "https://www.npr.org/2025/12/23/nx-s1-5653302/more-epstein-files-released-trump-mentioned"
+      },
+      "ufo_event": {
+        "date": "2026-02-19",
+        "title": "特朗普下令公开所有政府外星人/UFO文件",
+        "title_en": "Trump orders release of all government alien/UFO files",
+        "description": "特朗普在Truth Social发帖，指示国防部和所有相关机构'开始公开与外星人、UFO、UAP相关的所有政府文件'，因为'公众表现出极大兴趣'。",
+        "media_frenzy_score": 9,
+        "government_action": true,
+        "source_url": "https://www.bbc.com/news/articles/c4g57gqqln1o"
+      },
+      "gap_days": 58,
+      "notes": "日期更正：DOJ实际发布日为2025-12-23（非12-01）。多家主流媒体明确将特朗普UFO宣布与爱泼斯坦文件丑闻关联报道（Mediaite、Hindustan Times等）。特朗普本人名字在爱泼斯坦文件中出现，是最直接的利益相关方。"
+    },
+    {
+      "id": "case_008",
+      "confidence": "HIGH",
+      "region": "USA",
+      "crisis": {
+        "date": "1997-05-27",
+        "title": "最高法院9-0裁定：克林顿必须接受宝拉·琼斯性骚扰诉讼",
+        "title_en": "Supreme Court rules 9-0 Clinton must face Paula Jones sexual harassment lawsuit",
+        "description": "美国最高法院以9-0全票裁定，克林顿总统无权以总统职务为由免于民事诉讼。这是对克林顿的重大法律打击，直接为后来的莱温斯基调查铺路。克林顿面临在任期间必须就性行为作证的可能。",
+        "category": "法律/性丑闻",
+        "severity": 9,
+        "source_url": "https://supreme.justia.com/cases/federal/us/520/681/"
+      },
+      "ufo_event": {
+        "date": "1997-06-24",
+        "title": "美国空军发布《罗斯威尔报告：案件终结》",
+        "title_en": "US Air Force releases 'The Roswell Report: Case Closed'",
+        "description": "美国空军发布231页官方报告《罗斯威尔报告：案件终结》，声称1947年坠毁物体是Project MOGUL高空气球。报告在50周年纪念日前一周发布，引发全球媒体UFO报道热潮。克林顿本人后来承认曾在第二任期调查罗斯威尔文件。",
+        "media_frenzy_score": 8,
+        "government_action": true,
+        "source_url": "https://www.history.com/this-day-in-history/june-24/u-s-air-force-reports-on-roswell"
+      },
+      "gap_days": 28,
+      "notes": "日期已核实：Clinton v. Jones最高法院裁定(1997-05-27) → 空军发布罗斯威尔报告(1997-06-24)，间隔28天。政府主动行为。克林顿此后陷入莱温斯基调查，并于1997年底主动查阅罗斯威尔档案。高置信度。"
+    },
+    {
+      "id": "case_009",
+      "confidence": "MEDIUM",
+      "region": "USA",
+      "crisis": {
+        "date": "2024-12-01",
+        "title": "拜登违背承诺：赦免儿子亨特·拜登所有联邦罪行",
+        "title_en": "Biden breaks promise: issues 'full and unconditional' pardon to son Hunter",
+        "description": "拜登总统宣布对儿子亨特·拜登颁布'全面且无条件的'赦免令，覆盖2014年至2024年的所有联邦罪行。此举严重违背拜登此前多次公开承诺，各方猛烈批评，成为拜登任期末最大政治丑闻之一。",
+        "category": "法律/丑闻/信任危机",
+        "severity": 8,
+        "source_url": "https://www.nytimes.com/2024/12/01/us/politics/biden-pardon-son-hunter.html"
+      },
+      "ufo_event": {
+        "date": "2024-12-07",
+        "title": "新泽西神秘无人机/UFO大规模目击事件席卷美国东海岸",
+        "title_en": "New Jersey mysterious drone/UFO mass sightings sweep US East Coast",
+        "description": "新泽西州神秘无人机目击事件迅速成为全国性UFO媒体狂潮，大量视频在社交媒体疯传，国会议员要求调查，白宫、DHS、FBI均称'无法解释来源'。目击范围扩展至纽约、宾州、马里兰等多州，媒体热度极高。",
+        "media_frenzy_score": 9,
+        "government_action": false,
+        "source_url": "https://en.wikipedia.org/wiki/2024_United_States_drone_sightings"
+      },
+      "gap_days": 6,
+      "notes": "初始无人机目击始于2024年11月（先于赦免），但媒体爆炸式传播发生在12月赦免后。白宫、FBI、DHS均声称'无法解释来源'，异常放大了UFO叙事。间隔仅6天，时间关联极强，但方向存疑（无人机客观存在，非政府制造）。置信度MEDIUM。"
+    },
+    {
+      "id": "case_010",
+      "confidence": "MEDIUM",
+      "region": "UK",
+      "crisis": {
+        "date": "2009-05-08",
+        "title": "英国国会议员腐败丑闻曝光：大规模虚报公务报销，震惊全英",
+        "title_en": "UK MPs expenses scandal breaks: mass fraudulent expense claims shock Britain",
+        "description": "《每日电报》开始连续披露英国国会议员大规模虚报公务报销，涵盖几乎所有党派，包括内阁成员。被认为是英国数十年来最严重的政治丑闻，戈登·布朗政府支持率崩溃。",
+        "category": "腐败丑闻（英国）",
+        "severity": 9,
+        "source_url": "https://en.wikipedia.org/wiki/United_Kingdom_parliamentary_expenses_scandal"
+      },
+      "ufo_event": {
+        "date": "2009-08-17",
+        "title": "英国国防部发布第四批UFO解密档案，共14份",
+        "title_en": "UK MoD releases 4th batch of declassified UFO files, 14 volumes",
+        "description": "英国国家档案馆发布第四批国防部UFO解密档案，共14份文件，包含1994-2000年的UFO报告。同年11月，国防部正式关闭运行50年的UFO专线。《卫报》等主流媒体广泛报道。",
+        "media_frenzy_score": 7,
+        "government_action": true,
+        "source_url": "https://www.theguardian.com/uk/2009/aug/17/mod-report-ufo-sightings"
+      },
+      "gap_days": 101,
+      "notes": "日期来源：《卫报》2009-08-17报道'今日发布14份文件'。英国MPs腐败丑闻首曝(05-08) → MoD UFO文件(08-17)，间隔101天。属于国际案例，置信度MEDIUM（文件发布是预定计划，但选择在丑闻深重期间发布）。"
+    }
+  ],
+  "removed_cases": [
+    {
+      "id": "removed_001",
+      "original_id": "case_storm_area51",
+      "reason": "方向错误：Storm Area 51 Facebook活动创建于2019-06-27，比乌克兰通话(2019-07-25)早29天。不符合'政治危机后出现UFO新闻'的模式。属于独立的文化现象。"
+    }
+  ],
+  "classic_reference": {
+    "id": "clinton_1998",
+    "crisis_date": "1998-08-17",
+    "crisis": "克林顿莫妮卡·莱温斯基丑闻：总统电视承认不当关系",
+    "action_date": "1998-08-20",
+    "action": "克林顿下令对阿富汗/苏丹发动导弹袭击（'无限覆盖'行动）",
+    "gap_days": 3,
+    "notes": "'Wag the Dog'效应经典案例。这是用军事行动（而非UFO新闻）转移注意力，但机制相同。电影《摇尾巴的狗》于1997年12月上映，预言了这一模式。"
+  }
+}

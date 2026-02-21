@@ -1,0 +1,310 @@
+{
+  "_meta": {
+    "description": "新闻来源配置文件 — 多类型、多机构综合覆盖",
+    "last_updated": "2026-02-21-rev3",
+    "feed_types": ["rss", "reddit_json"],
+    "categories": ["ufo", "crisis"],
+    "weight_scale": "1=聚合/社区, 2=主流报纸/专项媒体, 3=通讯社/政府官方"
+  },
+  "sources": [
+    {
+      "name": "Associated Press 美国政治",
+      "url": "https://feeds.apnews.com/rss/apf-topnews",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "美联社顶级新闻 — 当前环境存在SSL握手问题，临时停用",
+      "active": false
+    },
+    {
+      "name": "Associated Press 科技/科学",
+      "url": "https://feeds.apnews.com/rss/apf-science",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 3,
+      "note": "美联社科学频道 — 当前环境存在SSL握手问题，临时停用",
+      "active": false
+    },
+    {
+      "name": "BBC 美国&加拿大新闻",
+      "url": "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "BBC英国广播公司 — 美国政治报道（已切换到可用新路径）",
+      "active": true
+    },
+    {
+      "name": "BBC 科技新闻",
+      "url": "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "BBC科学/环境频道 — 偶发UFO报道",
+      "active": true
+    },
+    {
+      "name": "The Guardian 美国新闻",
+      "url": "https://www.theguardian.com/us-news/rss",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "卫报 — 美国政治调查报道",
+      "active": true
+    },
+    {
+      "name": "NPR 政治",
+      "url": "https://feeds.npr.org/1014/rss.xml",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "美国国家公共广播电台政治频道",
+      "active": true
+    },
+    {
+      "name": "NPR 综合新闻",
+      "url": "https://feeds.npr.org/1001/rss.xml",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "NPR综合新闻 — 含UAP报道",
+      "active": true
+    },
+    {
+      "name": "The Hill",
+      "url": "https://thehill.com/news/feed/",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "The Hill — 国会与政治新闻",
+      "active": true
+    },
+    {
+      "name": "Politico",
+      "url": "https://rss.politico.com/politics-news.xml",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "Politico — 美国政治专项媒体",
+      "active": true
+    },
+    {
+      "name": "Reuters 政治",
+      "url": "https://feeds.reuters.com/reuters/politicsNews",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "路透社政治新闻 — 公开RSS在当前环境不可用（旧地址SSL/备用地址404），临时停用",
+      "active": false,
+      "fallback_url": "https://www.reutersagency.com/feed/?best-topics=political-landscape&post_type=best"
+    },
+    {
+      "name": "Reuters 美国新闻",
+      "url": "https://feeds.reuters.com/Reuters/domesticNews",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "路透社美国国内新闻 — 公开RSS在当前环境不可用（旧地址SSL/备用地址404），临时停用",
+      "active": false,
+      "fallback_url": "https://www.reutersagency.com/feed/?best-topics=us&post_type=best"
+    },
+    {
+      "name": "Space.com",
+      "url": "https://www.space.com/feeds/all",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "Space.com — UAP/UFO专项科学报道",
+      "active": true
+    },
+    {
+      "name": "Defense One",
+      "url": "https://www.defenseone.com/rss/all/",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "Defense One — 五角大楼/军方专项媒体，含UAP报道",
+      "active": true
+    },
+    {
+      "name": "NYT 政治（标题层）",
+      "url": "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "《纽约时报》政治频道 — 标题和摘要可免费获取",
+      "active": true
+    },
+    {
+      "name": "NYT 美国新闻",
+      "url": "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "《纽约时报》美国新闻频道",
+      "active": true
+    },
+    {
+      "name": "Washington Post 政治（标题层）",
+      "url": "https://feeds.washingtonpost.com/rss/politics",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "《华盛顿邮报》政治频道 — 标题和摘要可免费获取",
+      "active": true
+    },
+    {
+      "name": "Pentagon / DoD 新闻稿",
+      "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=20",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 3,
+      "note": "美国国防部官方新闻稿 — 最直接的政府声明来源",
+      "active": true
+    },
+    {
+      "name": "White House 新闻稿",
+      "url": "https://www.whitehouse.gov/news/feed/",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "白宫官方声明/新闻稿（已切换到可用news feed）",
+      "active": true
+    },
+    {
+      "name": "ABC News 美国",
+      "url": "https://abcnews.go.com/abcnews/usheadlines",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "ABC新闻美国头条 — 当前环境SSL握手失败，临时停用",
+      "active": false
+    },
+    {
+      "name": "CBS News 综合",
+      "url": "https://www.cbsnews.com/latest/rss/main",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "CBS新闻综合头条",
+      "active": true
+    },
+    {
+      "name": "VICE / Motherboard",
+      "url": "https://www.vice.com/en/rss",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 1,
+      "note": "VICE Motherboard — 曾是UAP报道先驱；VICE于2024年停刊，此源可能已失效",
+      "active": false
+    },
+    {
+      "name": "Reddit r/UFOs（本周热门）",
+      "url": "https://www.reddit.com/r/UFOs/top/.json?t=week&limit=25",
+      "type": "reddit_json",
+      "category": "ufo",
+      "weight": 1,
+      "note": "Reddit UFO社区 — 民间目击和媒体转发聚合",
+      "active": true
+    },
+    {
+      "name": "Reddit r/politics（本周热门）",
+      "url": "https://www.reddit.com/r/politics/top/.json?t=week&limit=25",
+      "type": "reddit_json",
+      "category": "crisis",
+      "weight": 1,
+      "note": "Reddit政治社区 — 美国政治讨论聚合",
+      "active": true
+    },
+    {
+      "name": "Reddit r/news（本周热门）",
+      "url": "https://www.reddit.com/r/news/top/.json?t=week&limit=25",
+      "type": "reddit_json",
+      "category": "crisis",
+      "weight": 1,
+      "note": "Reddit综合新闻社区",
+      "active": true
+    },
+    {
+      "name": "Google News - UAP政府披露（补充）",
+      "url": "https://news.google.com/rss/search?q=UAP+UFO+disclosure+government+Pentagon&hl=en-US&gl=US&ceid=US:en",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 1,
+      "note": "Google新闻聚合 — 补充覆盖",
+      "active": true
+    },
+    {
+      "name": "Google News - AARO非人类智慧（补充）",
+      "url": "https://news.google.com/rss/search?q=AARO+%22non-human%22+OR+%22crash+retrieval%22+OR+%22UAP+hearing%22&hl=en-US&gl=US&ceid=US:en",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 1,
+      "note": "Google新闻聚合 — AARO/非人类智慧专项",
+      "active": true
+    },
+    {
+      "name": "Google News - 起诉弹劾丑闻（补充）",
+      "url": "https://news.google.com/rss/search?q=indictment+OR+impeachment+OR+%22special+counsel%22+OR+%22grand+jury%22&hl=en-US&gl=US&ceid=US:en",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 1,
+      "note": "Google新闻聚合 — 法律/政治危机",
+      "active": true
+    },
+    {
+      "name": "Google News - 爱泼斯坦文件（补充）",
+      "url": "https://news.google.com/rss/search?q=Epstein+files+OR+documents+OR+release&hl=en-US&gl=US&ceid=US:en",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 1,
+      "note": "Google新闻聚合 — 爱泼斯坦文件专项",
+      "active": true
+    },
+    {
+      "name": "PBS NewsHour 政治（补充）",
+      "url": "https://www.pbs.org/newshour/feeds/rss/politics",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "PBS政治频道 — 公共媒体，适合作为高质量补充源",
+      "active": true
+    },
+    {
+      "name": "BBC 政治（补充）",
+      "url": "https://feeds.bbci.co.uk/news/politics/rss.xml",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "BBC政治频道 — 作为美国频道外的政治补充",
+      "active": true
+    },
+    {
+      "name": "CBS News 政治（补充）",
+      "url": "https://www.cbsnews.com/latest/rss/politics",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "CBS政治频道 — 补充法律/国会相关新闻",
+      "active": true
+    },
+    {
+      "name": "NASA Breaking News（补充）",
+      "url": "https://www.nasa.gov/rss/dyn/breaking_news.rss",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "NASA官方突发资讯 — 补充航天与异常现象背景报道",
+      "active": true
+    },
+    {
+      "name": "Politico Defense（补充）",
+      "url": "https://rss.politico.com/defense.xml",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "Politico国防频道 — 补充五角大楼和听证会相关新闻",
+      "active": true
+    }
+  ]
+}

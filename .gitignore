@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+._*
+
+data/scraped_news.json
+data/causal_panel.json
+data/causal_report.json
+data/panel_progress.json
+data/strict_dual_review.json
