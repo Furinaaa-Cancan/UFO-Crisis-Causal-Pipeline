@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--request-retries", type=int, default=REQUEST_RETRIES, help=f"单段重试次数（默认 {REQUEST_RETRIES}）")
     p.add_argument("--pause-between-chunks", type=float, default=PAUSE_BETWEEN_CHUNKS, help="分段请求间隔秒数")
     p.add_argument("--allow-partial", action="store_true", help="分段失败时跳过该段继续（推荐）")
+    p.add_argument("--skip-zero-days", action="store_true", help="跳过全零天（默认保留）")
     return p.parse_args()
 
 
@@ -282,8 +283,8 @@ def main() -> None:
         cs = int(ctrl_s.get(day_iso, 0))
         ci = int(ctrl_i.get(day_iso, 0))
 
-        # 全零日跳过，避免无意义膨胀。
-        if (u + c + ce + cs + ci) == 0:
+        # 默认保留全零日作为有效观测；仅在显式要求时跳过。
+        if (u + c + ce + cs + ci) == 0 and args.skip_zero_days:
             skipped_empty += 1
             d += timedelta(days=1)  # type: ignore
             continue
