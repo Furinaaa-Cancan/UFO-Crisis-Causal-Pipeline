@@ -70,6 +70,15 @@ def build_signature(summary: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _parse_iso_ts(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
 def classify_level(summary: Dict[str, Any]) -> str:
     if (
         summary["gates"]["core_passed"]
@@ -241,10 +250,15 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
 
     signature = build_signature(summary)
     prev_sig = prev_snapshot.get("meta", {}).get("signature") if prev_snapshot else None
-    summary["gates"]["reproducibility_passed"] = bool(prev_sig) and prev_sig == signature
+    prev_ts = _parse_iso_ts(prev_snapshot.get("generated_at")) if prev_snapshot else None
+    curr_ts = _parse_iso_ts(summary.get("generated_at"))
+    cross_day_repeat = bool(prev_ts and curr_ts and prev_ts.date() < curr_ts.date())
+    summary["gates"]["reproducibility_passed"] = bool(prev_sig) and prev_sig == signature and cross_day_repeat
     summary["meta"] = {
         "signature": signature,
         "previous_signature_exists": bool(prev_sig),
+        "previous_generated_at": prev_snapshot.get("generated_at") if prev_snapshot else None,
+        "cross_day_repeat": cross_day_repeat,
     }
     summary["research_level"] = classify_level(summary)
     return summary

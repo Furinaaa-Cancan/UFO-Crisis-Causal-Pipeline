@@ -28,6 +28,7 @@ PERMUTATIONS = 2000
 MIN_OBS_DAYS = 90
 MIN_SHOCK_DAYS = 10
 PLACEBO_BUFFER_DAYS = 14
+SHOCK_COUNT_FLOOR = 2.0
 
 
 def parse_date(s: str) -> date:
@@ -45,6 +46,12 @@ def percentile(values: List[float], p: float) -> float:
     hi = min(lo + 1, len(xs) - 1)
     w = idx - lo
     return xs[lo] * (1 - w) + xs[hi] * w
+
+
+def compute_shock_threshold(nonzero_values: List[float], q: float = 75.0, floor: float = SHOCK_COUNT_FLOOR) -> float:
+    if not nonzero_values:
+        return floor
+    return max(floor, percentile(nonzero_values, q))
 
 
 def read_rows(policy: str = "strict-balanced") -> List[dict]:
@@ -166,7 +173,7 @@ def main() -> None:
         crisis_series = {parse_date(r["date"]): float(r.get("crisis_count", 0)) for r in rows}
 
         crisis_nonzero = [v for v in crisis_series.values() if v > 0]
-        thr = max(1.0, percentile(crisis_nonzero, 75)) if crisis_nonzero else 1.0
+        thr = compute_shock_threshold(crisis_nonzero)
         shocks = sorted([d for d in dates if crisis_series.get(d, 0.0) >= thr])
         out["shock_days"] = len(shocks)
         out["shock_threshold"] = round(thr, 6)

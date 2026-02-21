@@ -25,6 +25,7 @@ DATA_DIR = BASE_DIR / "data"
 PANEL_FILE = DATA_DIR / "causal_panel.json"
 PROGRESS_FILE = DATA_DIR / "panel_progress.json"
 DUAL_REVIEW_FILE = DATA_DIR / "strict_dual_review.json"
+SHOCK_COUNT_FLOOR = 2.0
 
 
 def parse_date(s: str) -> date:
@@ -62,6 +63,12 @@ def pearson_corr(xs: List[float], ys: List[float]) -> float:
     if den == 0:
         return 0.0
     return num / den
+
+
+def compute_shock_threshold(nonzero_values: List[float], q: float = 75.0, floor: float = SHOCK_COUNT_FLOOR) -> float:
+    if not nonzero_values:
+        return floor
+    return max(floor, percentile(nonzero_values, q))
 
 
 def max_missing_streak(dates: List[date], all_dates: List[date]) -> int:
@@ -150,7 +157,7 @@ def compute_progress(
     longest_gap = max_missing_streak(dates, all_dates)
 
     crisis_nonzero = [float(r.get("crisis_count", 0)) for r in rows if float(r.get("crisis_count", 0)) > 0]
-    shock_threshold = max(1.0, percentile(crisis_nonzero, 75)) if crisis_nonzero else 1.0
+    shock_threshold = compute_shock_threshold(crisis_nonzero)
     shock_days = sum(1 for r in rows if float(r.get("crisis_count", 0)) >= shock_threshold)
 
     remaining_days = max(0, min_days - observed_days)
@@ -269,10 +276,8 @@ def compute_dual_policy_review(panel_payload: dict, min_overlap_days: int = 30) 
     rel_delta_crisis = sum(abs(a - b) for a, b in zip(strict_crisis, balanced_crisis)) / denom_crisis
     rel_delta_ufo = sum(abs(a - b) for a, b in zip(strict_ufo, balanced_ufo)) / denom_ufo
 
-    strict_thr = max(1.0, percentile([x for x in strict_crisis if x > 0], 75)) if strict_crisis else 1.0
-    balanced_thr = (
-        max(1.0, percentile([x for x in balanced_crisis if x > 0], 75)) if balanced_crisis else 1.0
-    )
+    strict_thr = compute_shock_threshold([x for x in strict_crisis if x > 0])
+    balanced_thr = compute_shock_threshold([x for x in balanced_crisis if x > 0])
     strict_shock = [x >= strict_thr for x in strict_crisis]
     balanced_shock = [x >= balanced_thr for x in balanced_crisis]
     shock_agreement = (

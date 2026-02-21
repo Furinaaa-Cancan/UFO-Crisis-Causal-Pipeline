@@ -34,6 +34,7 @@ PERMUTATIONS = 2000
 MIN_SHOCK_DAYS = 8
 MIN_PRE_DAYS = 30
 MIN_POST_DAYS = 8
+SHOCK_COUNT_FLOOR = 2.0
 
 
 def parse_date(s: str) -> date:
@@ -51,6 +52,12 @@ def percentile(values: List[float], p: float) -> float:
     hi = min(lo + 1, len(xs) - 1)
     w = idx - lo
     return xs[lo] * (1 - w) + xs[hi] * w
+
+
+def compute_shock_threshold(nonzero_values: List[float], q: float = 75.0, floor: float = SHOCK_COUNT_FLOOR) -> float:
+    if not nonzero_values:
+        return floor
+    return max(floor, percentile(nonzero_values, q))
 
 
 def load_country_rows() -> List[dict]:
@@ -74,7 +81,7 @@ def load_us_shock_days(policy: str = "strict-balanced") -> List[date]:
         return []
     series = {parse_date(r["date"]): float(r.get("crisis_count", 0)) for r in us}
     nonzero = [v for v in series.values() if v > 0]
-    thr = max(1.0, percentile(nonzero, 75)) if nonzero else 1.0
+    thr = compute_shock_threshold(nonzero)
     return sorted([d for d, v in series.items() if v >= thr])
 
 

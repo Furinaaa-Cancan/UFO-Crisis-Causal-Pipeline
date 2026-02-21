@@ -133,6 +133,10 @@ class TestStrictLogic(unittest.TestCase):
         self.assertNotIn("crisis=12 (<10)", stats.reason)
         self.assertIn("ufo=4 (<30)", stats.reason)
 
+    def test_shock_threshold_uses_absolute_floor(self):
+        self.assertEqual(causal_analyzer.compute_shock_threshold([1.0, 1.0, 1.0]), 2.0)
+        self.assertEqual(panel_pipeline.compute_shock_threshold([]), 2.0)
+
 
 if __name__ == "__main__":
     unittest.main()

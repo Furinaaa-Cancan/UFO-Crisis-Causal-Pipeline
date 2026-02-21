@@ -163,6 +163,7 @@ python causal_analyzer.py --fail-on-reject
 - lead-lag 相关（危机是否领先UFO热度）
 - 置换检验（随机冲击日对照）
 - 安慰剂检验（控制议题波动）
+- 冲击日阈值下限（`shock_threshold >= 2`，避免把轻微噪声当作冲击）
 - 有效观测覆盖率闸门（避免“日期跨度足够但中间大量缺失”的误判）
 - 审批报告自动写入 `data/causal_report.json`（含每条审批门槛通过状态）
 

@@ -36,6 +36,7 @@ REPORT_FILE = DATA_DIR / "causal_report.json"
 SEED = 20260221
 PERMUTATIONS = 20000
 WINDOWS = (7, 14, 30)
+SHOCK_COUNT_FLOOR = 2.0
 
 CONTROL_TOPIC_KEYWORDS = {
     "economy": {
@@ -99,6 +100,12 @@ def pearson_corr(xs: List[float], ys: List[float]) -> float:
     if den == 0:
         return 0.0
     return num / den
+
+
+def compute_shock_threshold(nonzero_values: List[float], q: float = 75.0, floor: float = SHOCK_COUNT_FLOOR) -> float:
+    if not nonzero_values:
+        return floor
+    return max(floor, percentile(nonzero_values, q))
 
 
 def binomial_right_tail(k: int, n: int, p: float = 0.5) -> float:
@@ -575,7 +582,7 @@ def analyze_panel(
             best_corr=0.0,
         )
 
-    shock_threshold = max(1.0, percentile(crisis_nonzero, 75))
+    shock_threshold = compute_shock_threshold(crisis_nonzero)
     shock_days = [d for d, v in crisis_series.items() if v >= shock_threshold]
     n_shocks = len(shock_days)
 
@@ -607,7 +614,7 @@ def analyze_panel(
         )
 
     ufo_nonzero = [v for v in ufo_series.values() if v > 0]
-    ufo_thr = max(1.0, percentile(ufo_nonzero, 75)) if ufo_nonzero else 1.0
+    ufo_thr = compute_shock_threshold(ufo_nonzero)
     ufo_shock_days = [d for d, v in ufo_series.items() if v >= ufo_thr]
 
     results = {}
