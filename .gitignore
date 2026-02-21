@@ -9,3 +9,12 @@ data/causal_panel.json
 data/causal_report.json
 data/panel_progress.json
 data/strict_dual_review.json
+data/strict_review_snapshot.json
+data/model_did_report.json
+data/model_event_study_report.json
+data/model_synth_control_report.json
+data/control_panels/control_panel_build_report.json
+data/control_panels/control_topics.csv
+data/control_panels/country_controls.csv
+._*
+__pycache__/

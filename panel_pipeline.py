@@ -219,9 +219,12 @@ def compute_progress(
 def compute_dual_policy_review(panel_payload: dict, min_overlap_days: int = 30) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     rows = panel_payload.get("rows", [])
-    strict_rows = {r.get("date"): r for r in rows if r.get("policy") == "strict" and r.get("date")}
+    run_day_rows = [r for r in rows if r.get("date_scope") == "run_day_only"]
+    excluded_legacy_rows = len(rows) - len(run_day_rows)
+
+    strict_rows = {r.get("date"): r for r in run_day_rows if r.get("policy") == "strict" and r.get("date")}
     balanced_rows = {
-        r.get("date"): r for r in rows if r.get("policy") == "strict-balanced" and r.get("date")
+        r.get("date"): r for r in run_day_rows if r.get("policy") == "strict-balanced" and r.get("date")
     }
 
     overlap_dates = sorted(set(strict_rows.keys()) & set(balanced_rows.keys()))
@@ -234,6 +237,7 @@ def compute_dual_policy_review(panel_payload: dict, min_overlap_days: int = 30) 
                 "strict_days": len(strict_rows),
                 "strict_balanced_days": len(balanced_rows),
                 "overlap_days": len(overlap_dates),
+                "excluded_non_run_day_rows": excluded_legacy_rows,
             },
             "targets": {"min_overlap_days": min_overlap_days},
         }
@@ -247,6 +251,7 @@ def compute_dual_policy_review(panel_payload: dict, min_overlap_days: int = 30) 
                 "strict_days": len(strict_rows),
                 "strict_balanced_days": len(balanced_rows),
                 "overlap_days": 0,
+                "excluded_non_run_day_rows": excluded_legacy_rows,
             },
             "targets": {"min_overlap_days": min_overlap_days},
         }
@@ -309,6 +314,7 @@ def compute_dual_policy_review(panel_payload: dict, min_overlap_days: int = 30) 
             "overlap_days": len(overlap_dates),
             "window_start": overlap_dates[0],
             "window_end": overlap_dates[-1],
+            "excluded_non_run_day_rows": excluded_legacy_rows,
         },
         "targets": {"min_overlap_days": min_overlap_days},
         "metrics": {
@@ -345,8 +351,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-observed-ratio",
         type=float,
-        default=0.8,
-        help="严格审批最少有效观测覆盖率（默认 0.8）",
+        default=0.85,
+        help="严格审批最少有效观测覆盖率（默认 0.85）",
     )
     parser.add_argument(
         "--enforce-gate",
@@ -371,6 +377,9 @@ def main() -> None:
     args = parse_args()
 
     py = sys.executable
+    if args.skip_causal and not args.skip_scrape:
+        print("[warn] --skip-causal 已开启：本次抓取结果不会写入 causal_panel（仅更新 scraped_news）。")
+
     if not args.skip_scrape:
         run_cmd([py, "scraper.py", "--policy", args.policy])
 

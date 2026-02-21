@@ -1,0 +1,92 @@
+{
+  "meta": {
+    "version": "v1.0",
+    "updated_at": "2026-02-21",
+    "scope": "US daily panel for crisis-UFO causal identification"
+  },
+  "variables": [
+    {
+      "name": "date",
+      "type": "date",
+      "description": "日历日（YYYY-MM-DD）",
+      "source": "causal_panel.rows[].date"
+    },
+    {
+      "name": "policy",
+      "type": "category",
+      "description": "抓取策略 strict / strict-balanced / lenient",
+      "source": "causal_panel.rows[].policy"
+    },
+    {
+      "name": "ufo_count",
+      "type": "int",
+      "description": "运行当日通过审核的UFO政策性条目数",
+      "source": "causal_panel.rows[].ufo_count"
+    },
+    {
+      "name": "crisis_count",
+      "type": "int",
+      "description": "运行当日通过审核的危机条目数",
+      "source": "causal_panel.rows[].crisis_count"
+    },
+    {
+      "name": "shock_threshold",
+      "type": "float",
+      "description": "危机冲击阈值（crisis_count分布的上分位）",
+      "source": "causal_report.panel.shock_threshold"
+    },
+    {
+      "name": "shock_indicator",
+      "type": "binary",
+      "description": "是否冲击日（crisis_count >= threshold）",
+      "source": "derived"
+    },
+    {
+      "name": "control_density_accepted",
+      "type": "float",
+      "description": "通过审核样本中的控制议题密度",
+      "source": "causal_panel.rows[].control_density_accepted"
+    },
+    {
+      "name": "observed_days",
+      "type": "int",
+      "description": "有效观测天数",
+      "source": "causal_report.panel.observed_days"
+    },
+    {
+      "name": "observed_ratio",
+      "type": "float",
+      "description": "有效观测覆盖率",
+      "source": "causal_report.panel.observed_ratio"
+    },
+    {
+      "name": "source_availability_rate",
+      "type": "float",
+      "description": "活跃来源可用率",
+      "source": "scraped_news.source_health.availability_rate"
+    },
+    {
+      "name": "source_failed_count",
+      "type": "int",
+      "description": "抓取失败来源数量",
+      "source": "scraped_news.source_health.failed_sources"
+    }
+  ],
+  "estimands": [
+    {
+      "name": "ATT_7d",
+      "description": "冲击后7天平均处理效应",
+      "method": "DID/Event Study"
+    },
+    {
+      "name": "ATT_14d",
+      "description": "冲击后14天平均处理效应",
+      "method": "DID/Event Study"
+    },
+    {
+      "name": "ATT_30d",
+      "description": "冲击后30天平均处理效应",
+      "method": "DID/Event Study"
+    }
+  ]
+}

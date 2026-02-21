@@ -35,6 +35,12 @@
 ├── scraper.py             # 严格真实性新闻抓取器（评分+交叉佐证+过滤）
 ├── causal_analyzer.py     # 因果检验器（置换检验+方向性检验+样本充分性诊断）
 ├── panel_pipeline.py      # 日常累计管道（抓取+审批+进度）
+├── research_unified_pipeline.py # 统一研究总管道（双档+对照构建+严格评审+模型）
+├── control_panel_builder.py # 对照面板构建器（topic/country 自动更新）
+├── strict_reviewer.py     # 统一严格评审器（输出研究等级与闸门状态）
+├── STRICT_GATES.md        # 严格闸门定义（L0-L4）
+├── pre_registration.md    # 预注册草案
+├── RESEARCH_STRICT_REVIEW.md # 顶刊方法对照与漏洞清单
 └── data/
     ├── sources.json       # 来源配置（28个来源，权重1-3，支持 fallback_url）
     ├── events_v2.json     # 主数据集（置信度评级 + 政府主动行为标记，手工核实）
@@ -42,7 +48,13 @@
     ├── causal_panel.json  # 长期面板（日度累计）
     ├── causal_report.json # 严格审批报告
     ├── panel_progress.json # 门槛进度
-    └── strict_dual_review.json # strict 双档稳定性评审
+    ├── strict_dual_review.json # strict 双档稳定性评审
+    ├── strict_review_snapshot.json # 统一严格评审快照
+    ├── model_did_report.json # DID 准实验输出
+    ├── model_event_study_report.json # 事件研究动态效应输出
+    ├── model_synth_control_report.json # 合成控制简化输出
+    ├── research_variable_dictionary.json # 变量字典
+    └── control_panels/    # 对照组面板（topic/country + 来源配置）
 ```
 
 ---
@@ -141,7 +153,7 @@ python causal_analyzer.py --no-update-panel
 
 # 指定面板分析策略与最低样本门槛
 python causal_analyzer.py --panel-policy strict-balanced --min-panel-days 180 --min-panel-shocks 12
-python causal_analyzer.py --panel-policy strict-balanced --min-panel-observed-ratio 0.8
+python causal_analyzer.py --panel-policy strict-balanced --min-panel-observed-ratio 0.85
 
 # 严格审批闸门：未通过则返回非零退出码（适合CI）
 python causal_analyzer.py --fail-on-reject
@@ -166,8 +178,8 @@ python panel_pipeline.py --policy strict-balanced --skip-scrape --skip-causal
 # 严格闸门模式（未通过审批则非零退出）
 python panel_pipeline.py --policy strict-balanced --enforce-gate
 
-# 指定覆盖率闸门（默认0.8）
-python panel_pipeline.py --policy strict-balanced --min-observed-ratio 0.8
+# 指定覆盖率闸门（默认0.85）
+python panel_pipeline.py --policy strict-balanced --min-observed-ratio 0.85
 ```
 它会自动写入：
 - `data/causal_panel.json`（累计面板）
@@ -180,6 +192,40 @@ python panel_pipeline.py --policy strict-balanced --min-observed-ratio 0.8
 # 同日分别跑两档，累计可比样本
 python panel_pipeline.py --policy strict
 python panel_pipeline.py --policy strict-balanced
+```
+
+### 7. 统一研究总管道（严格评审版）
+新增 `research_unified_pipeline.py`，把双档、严格评审、模型输出统一起来：
+```bash
+# 推荐：双档都跑
+python research_unified_pipeline.py
+
+# 仅更新评审和模型（不抓取）
+python research_unified_pipeline.py --skip-scrape --skip-causal
+
+# 只跑 strict-balanced
+python research_unified_pipeline.py --only-policy strict-balanced
+
+# 只跑 strict，并让模型/评审也按 strict 口径
+python research_unified_pipeline.py --only-policy strict --model-policy strict
+```
+统一输出：
+- `data/strict_review_snapshot.json`（当前研究等级 L0-L4）
+- `data/model_did_report.json`
+- `data/model_event_study_report.json`
+- `data/model_synth_control_report.json`
+
+> 注意：模型脚本在样本不足或对照组缺失时会明确返回 `pending/blocked`，不会伪造因果结论。
+
+### 8. 对照组面板构建器
+`control_panel_builder.py` 会自动更新：
+- `data/control_panels/control_topics.csv`
+- `data/control_panels/country_controls.csv`
+- `data/control_panels/control_panel_build_report.json`
+
+手动运行：
+```bash
+python control_panel_builder.py --lookback-days 120
 ```
 
 ---

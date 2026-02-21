@@ -360,6 +360,21 @@ def _avg_score(rows: List[dict]) -> float:
     return mean(vals) if vals else 0.0
 
 
+def _rows_on_date(rows: List[dict], target_date_iso: str) -> List[dict]:
+    out: List[dict] = []
+    for row in rows:
+        s = row.get("date")
+        if not s:
+            continue
+        try:
+            d = parse_date(s).isoformat()
+        except Exception:
+            continue
+        if d == target_date_iso:
+            out.append(row)
+    return out
+
+
 def build_scraped_snapshot(scraped_payload: dict) -> dict:
     dt = parse_iso_dt(scraped_payload.get("scraped_at")) or datetime.now(timezone.utc)
     snap_date = dt.date().isoformat()
@@ -370,28 +385,38 @@ def build_scraped_snapshot(scraped_payload: dict) -> dict:
     rejected_rows = scraped_payload.get("rejected_news", [])
     stats = scraped_payload.get("stats", {})
 
+    # 面板口径：仅统计“运行当日(date==snap_date)”事件，避免 lookback 窗口重叠导致伪相关
+    ufo_rows_today = _rows_on_date(ufo_rows, snap_date)
+    crisis_rows_today = _rows_on_date(crisis_rows, snap_date)
+    rejected_rows_today = _rows_on_date(rejected_rows, snap_date)
+
     accepted_titles = []
-    accepted_titles.extend([r.get("title", "") for r in ufo_rows])
-    accepted_titles.extend([r.get("title", "") for r in crisis_rows])
-    rejected_titles = [r.get("title", "") for r in rejected_rows]
+    accepted_titles.extend([r.get("title", "") for r in ufo_rows_today])
+    accepted_titles.extend([r.get("title", "") for r in crisis_rows_today])
+    rejected_titles = [r.get("title", "") for r in rejected_rows_today]
 
     topic_counts_accepted = _topic_counts_from_titles(accepted_titles)
     topic_counts_rejected = _topic_counts_from_titles(rejected_titles)
     control_total_accepted = sum(topic_counts_accepted.values())
-    accepted_denom = max(1, len(ufo_rows) + len(crisis_rows))
+    accepted_denom = max(1, len(ufo_rows_today) + len(crisis_rows_today))
     control_density_accepted = control_total_accepted / float(accepted_denom)
 
     return {
         "date": snap_date,
         "policy": policy,
+        "date_scope": "run_day_only",
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "ufo_count": len(ufo_rows),
-        "crisis_count": len(crisis_rows),
-        "rejected_count": len(rejected_rows),
-        "accepted_events": int(stats.get("accepted_events", 0)),
+        "ufo_count": len(ufo_rows_today),
+        "crisis_count": len(crisis_rows_today),
+        "rejected_count": len(rejected_rows_today),
+        "accepted_events": len(ufo_rows_today) + len(crisis_rows_today),
+        "window_ufo_count": len(ufo_rows),
+        "window_crisis_count": len(crisis_rows),
+        "window_rejected_count": len(rejected_rows),
+        "window_accepted_events": int(stats.get("accepted_events", 0)),
         "raw_items": int(stats.get("raw_items", 0)),
-        "ufo_score_mean": round(_avg_score(ufo_rows), 3),
-        "crisis_score_mean": round(_avg_score(crisis_rows), 3),
+        "ufo_score_mean": round(_avg_score(ufo_rows_today), 3),
+        "crisis_score_mean": round(_avg_score(crisis_rows_today), 3),
         # 控制变量改为“仅通过审核样本”的议题强度，避免被 rejected 噪声放大
         "control_scope": "accepted_only",
         "control_economy": int(topic_counts_accepted["economy"]),
@@ -550,10 +575,10 @@ def analyze_panel(
     shock_days = [d for d, v in crisis_series.items() if v >= shock_threshold]
     n_shocks = len(shock_days)
 
-    if n_days < min_days or n_shocks < min_shocks or observed_ratio < min_observed_ratio:
+    if observed_days < min_days or n_shocks < min_shocks or observed_ratio < min_observed_ratio:
         reasons = []
-        if n_days < min_days:
-            reasons.append(f"days={n_days} (<{min_days})")
+        if observed_days < min_days:
+            reasons.append(f"observed_days={observed_days} (<{min_days})")
         if n_shocks < min_shocks:
             reasons.append(f"shocks={n_shocks} (<{min_shocks})")
         if observed_ratio < min_observed_ratio:
@@ -684,7 +709,7 @@ def run_strict_approval(
     """
     严格审批门槛：
     1) 样本充分
-    2) 覆盖天数 >= min_days
+    2) 有效观测天数 >= min_days
     3) 冲击日 >= min_shocks
     4) 有效观测覆盖率 >= min_observed_ratio
     5) 至少两个窗口 p_adj < 0.05 且前向效应>0
@@ -703,9 +728,9 @@ def run_strict_approval(
 
     gates.append(
         ApprovalGate(
-            name=f"panel_days>={min_days}",
-            passed=panel_stats.n_days >= min_days,
-            detail=f"days={panel_stats.n_days}",
+            name=f"panel_observed_days>={min_days}",
+            passed=panel_stats.observed_days >= min_days,
+            detail=f"observed_days={panel_stats.observed_days}, span_days={panel_stats.n_days}",
         )
     )
 
@@ -880,8 +905,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-panel-observed-ratio",
         type=float,
-        default=0.8,
-        help="面板有效观测覆盖率下限（默认 0.8）",
+        default=0.85,
+        help="面板有效观测覆盖率下限（默认 0.85）",
     )
     parser.add_argument(
         "--fail-on-reject",
