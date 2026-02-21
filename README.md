@@ -220,6 +220,8 @@ python research_unified_pipeline.py --only-policy strict --model-policy strict
 - `data/model_synth_control_report.json`
 
 > 注意：模型脚本在样本不足或对照组缺失时会明确返回 `pending/blocked`，不会伪造因果结论。
+> 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，
+> 以避免触发国家 RSS 联网抓取，保证离线/复现语义一致。
 
 ### 8. 对照组面板构建器
 `control_panel_builder.py` 会自动更新：

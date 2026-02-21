@@ -1,6 +1,7 @@
 import unittest
 import json
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 
 import causal_analyzer
@@ -194,6 +195,78 @@ class TestStrictLogic(unittest.TestCase):
                 panel_pipeline.PANEL_FILE = old_pipeline_panel
             self.assertEqual(len(rows2), 1)
             self.assertEqual(float(rows2[0]["crisis_count"]), 3.0)
+
+    def test_progress_earliest_ready_date_considers_shock_gap(self):
+        start = causal_analyzer.parse_date("2026-01-01")
+        rows = []
+        for i in range(10):
+            d = (start + timedelta(days=i)).isoformat()
+            rows.append({
+                "date": d,
+                "crisis_count": 3 if i == 0 else 0,
+                "ufo_count": 0,
+            })
+
+        report = panel_pipeline.compute_progress(
+            rows=rows,
+            min_days=12,
+            min_shocks=5,
+            min_observed_ratio=0.5,
+            policy="strict-balanced",
+        )
+        self.assertEqual(report["remaining"]["days"], 2)
+        self.assertEqual(report["remaining"]["shocks"], 4)
+        self.assertEqual(report["remaining"]["earliest_ready_date_if_daily"], "2026-01-14")
+
+    def test_reproducibility_same_day_rerun_does_not_regress_after_cross_day(self):
+        signature = {"approval_status": "REJECTED"}
+
+        # Cross-day repeat establishes reproducibility.
+        prev_cross_day = {
+            "generated_at": "2026-02-20T10:00:00+00:00",
+            "meta": {"signature": signature},
+            "gates": {"reproducibility_passed": True},
+        }
+        curr_ts = strict_reviewer._parse_iso_ts("2026-02-21T10:00:00+00:00")
+        passed, cross_day, same_day = strict_reviewer.evaluate_reproducibility(
+            prev_cross_day,
+            signature,
+            curr_ts,
+        )
+        self.assertTrue(passed)
+        self.assertTrue(cross_day)
+        self.assertFalse(same_day)
+
+        # Same-day rerun keeps reproducibility if previous snapshot already passed.
+        prev_same_day_passed = {
+            "generated_at": "2026-02-21T10:05:00+00:00",
+            "meta": {"signature": signature},
+            "gates": {"reproducibility_passed": True},
+        }
+        curr_ts2 = strict_reviewer._parse_iso_ts("2026-02-21T10:06:00+00:00")
+        passed2, cross_day2, same_day2 = strict_reviewer.evaluate_reproducibility(
+            prev_same_day_passed,
+            signature,
+            curr_ts2,
+        )
+        self.assertTrue(passed2)
+        self.assertFalse(cross_day2)
+        self.assertTrue(same_day2)
+
+        # If previous same-day snapshot had not passed, keep it failed.
+        prev_same_day_failed = {
+            "generated_at": "2026-02-21T10:07:00+00:00",
+            "meta": {"signature": signature},
+            "gates": {"reproducibility_passed": False},
+        }
+        curr_ts3 = strict_reviewer._parse_iso_ts("2026-02-21T10:08:00+00:00")
+        passed3, _, same_day3 = strict_reviewer.evaluate_reproducibility(
+            prev_same_day_failed,
+            signature,
+            curr_ts3,
+        )
+        self.assertFalse(passed3)
+        self.assertTrue(same_day3)
 
 
 if __name__ == "__main__":

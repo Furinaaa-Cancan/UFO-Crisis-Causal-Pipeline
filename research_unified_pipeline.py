@@ -76,7 +76,13 @@ def main() -> None:
             raise SystemExit(code)
 
     if not args.skip_controls:
-        code = run_cmd([py, "control_panel_builder.py", "--lookback-days", str(args.controls_lookback_days)])
+        controls_cmd = [py, "control_panel_builder.py", "--lookback-days", str(args.controls_lookback_days)]
+        if args.skip_scrape:
+            # Keep --skip-scrape semantically offline by default.
+            controls_cmd.append("--skip-countries")
+            print("[info] --skip-scrape 已开启：control_panel_builder 跳过 country RSS 抓取，仅更新 topics。")
+
+        code = run_cmd(controls_cmd)
         if code != 0:
             raise SystemExit(code)
 
