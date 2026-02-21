@@ -1,7 +1,11 @@
 import unittest
+import json
+import tempfile
+from pathlib import Path
 
 import causal_analyzer
 import panel_pipeline
+import scraper
 import strict_reviewer
 
 
@@ -65,6 +69,69 @@ class TestStrictLogic(unittest.TestCase):
 
         summary["gates"]["reproducibility_passed"] = False
         self.assertEqual(strict_reviewer.classify_level(summary), "L3")
+
+    def test_collapse_claim_clusters_merges_same_day_crisis_event_signature(self):
+        items = [
+            {
+                "category": "crisis",
+                "title": "Supreme Court strikes down Trump's tariffs",
+                "description": "Court ruling and White House response",
+                "date": "2026-02-21",
+                "source": "A",
+                "source_type": "rss",
+                "domain": "a.com",
+                "url": "https://a.com/1",
+                "weight": 3,
+                "authenticity": {"final_score": 90, "corroboration_count": 2, "trusted_corroboration": 2},
+            },
+            {
+                "category": "crisis",
+                "title": "Trump attacks Supreme Court after tariff ruling",
+                "description": "White House says it will appeal",
+                "date": "2026-02-21",
+                "source": "B",
+                "source_type": "rss",
+                "domain": "b.com",
+                "url": "https://b.com/2",
+                "weight": 2,
+                "authenticity": {"final_score": 85, "corroboration_count": 1, "trusted_corroboration": 1},
+            },
+            {
+                "category": "crisis",
+                "title": "DOJ files immigration lawsuit at border",
+                "description": "Federal action in court",
+                "date": "2026-02-21",
+                "source": "C",
+                "source_type": "rss",
+                "domain": "c.com",
+                "url": "https://c.com/3",
+                "weight": 2,
+                "authenticity": {"final_score": 84, "corroboration_count": 1, "trusted_corroboration": 1},
+            },
+        ]
+
+        merged = scraper.collapse_claim_clusters(items)
+        crisis = [x for x in merged if x.get("category") == "crisis"]
+        # The first two are the same same-day tariff/supreme-court shock and should merge into one.
+        self.assertEqual(len(crisis), 2)
+        biggest = max(crisis, key=lambda x: x.get("merged_claims", 1))
+        self.assertGreaterEqual(biggest.get("merged_claims", 1), 2)
+
+    def test_analyze_scraped_reason_only_includes_failed_constraints(self):
+        payload = {
+            "policy": "strict-balanced",
+            "ufo_news": [{"date": "2026-02-21", "title": "ufo"} for _ in range(4)],
+            "crisis_news": [{"date": "2026-02-21", "title": "crisis"} for _ in range(12)],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            fp = Path(tmp) / "scraped.json"
+            fp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            stats = causal_analyzer.analyze_scraped(fp)
+
+        self.assertFalse(stats.sufficient)
+        # crisis=12 should not appear as a failed constraint; ufo and coverage should.
+        self.assertNotIn("crisis=12 (<10)", stats.reason)
+        self.assertIn("ufo=4 (<30)", stats.reason)
 
 
 if __name__ == "__main__":

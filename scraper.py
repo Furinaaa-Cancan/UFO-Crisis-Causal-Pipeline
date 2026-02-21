@@ -122,6 +122,12 @@ OFFICIAL_ACTION_KEYWORDS = [
     "filed lawsuit", "lawsuit", "charged", "convicted", "sentenced", "plea deal",
 ]
 
+CRISIS_TOPIC_KEYWORDS = [
+    "tariff", "tariffs", "immigration", "border", "epstein", "iran", "russia",
+    "ukraine", "china", "israel", "gaza", "tax", "budget", "deficit",
+    "inflation", "election", "campaign", "supreme court", "doj", "fbi",
+]
+
 POLITICAL_CONTEXT_KEYWORDS = [
     "president", "white house", "congress", "senate", "house",
     "doj", "department of justice", "fbi", "federal", "supreme court",
@@ -920,7 +926,106 @@ def collapse_claim_clusters(items):
 
         collapsed.append(primary)
 
-    return collapsed
+    return merge_crisis_events_by_signature(collapsed)
+
+
+def _pick_best_anchor(text, candidates, default="na"):
+    hits = keyword_hits(text, candidates)
+    if not hits:
+        return default
+    # Prefer longer phrase anchors for more stable event signatures.
+    return sorted(set(hits), key=len, reverse=True)[0]
+
+
+def crisis_event_signature(item):
+    """
+    Build a coarse event signature for crisis items to reduce same-day media burst duplication.
+    Signature = date + action anchor + topic anchor + actor anchor.
+    """
+    date_key = item.get("date", "") or "na"
+    title = normalize_text(item.get("title", "")).lower()
+    desc = strip_html(item.get("description", "")).lower()
+    text = f"{title} {desc}"
+
+    action_anchor = _pick_best_anchor(text, OFFICIAL_ACTION_KEYWORDS + CRISIS_HARD_SIGNAL_KEYWORDS, default="na")
+    topic_anchor = _pick_best_anchor(text, CRISIS_TOPIC_KEYWORDS, default="na")
+    actor_anchor = _pick_best_anchor(
+        title,
+        [
+            "trump", "biden", "white house", "congress", "senate", "house",
+            "supreme court", "doj", "department of justice", "fbi", "pentagon",
+        ],
+        default="na",
+    )
+    return f"{date_key}|act:{action_anchor}|topic:{topic_anchor}|actor:{actor_anchor}"
+
+
+def merge_crisis_events_by_signature(events):
+    crisis = [e for e in events if e.get("category") == "crisis"]
+    others = [e for e in events if e.get("category") != "crisis"]
+    if not crisis:
+        return events
+
+    buckets = defaultdict(list)
+    for row in crisis:
+        buckets[crisis_event_signature(row)].append(row)
+
+    merged = []
+    for _, group in buckets.items():
+        ranked = sorted(
+            group,
+            key=lambda x: (
+                x.get("authenticity", {}).get("final_score", 0),
+                x.get("cluster_size", 1),
+                len(x.get("title", "")),
+            ),
+            reverse=True,
+        )
+        base = dict(ranked[0])
+
+        merged_sources = []
+        merged_domains = []
+        merged_urls = []
+        seen_s = set()
+        seen_d = set()
+        seen_u = set()
+        total_cluster = 0
+        for r in group:
+            total_cluster += int(r.get("cluster_size", 1) or 1)
+            for s in r.get("corroborated_sources", []) or []:
+                if s and s not in seen_s:
+                    seen_s.add(s)
+                    merged_sources.append(s)
+            for d in r.get("corroborated_domains", []) or []:
+                if d and d not in seen_d:
+                    seen_d.add(d)
+                    merged_domains.append(d)
+            for u in r.get("evidence_urls", []) or []:
+                if u and u not in seen_u:
+                    seen_u.add(u)
+                    merged_urls.append(u)
+
+        base["cluster_size"] = total_cluster
+        base["corroborated_sources"] = merged_sources
+        base["corroborated_domains"] = merged_domains
+        base["evidence_urls"] = merged_urls[:16]
+        base["merged_claims"] = len(group)
+        auth = base.setdefault("authenticity", {})
+        auth["corroboration_count"] = max(auth.get("corroboration_count", 0), len(merged_sources))
+        merged.append(base)
+
+    # Keep deterministic ordering for downstream panel snapshots.
+    out = others + merged
+    out.sort(
+        key=lambda x: (
+            x.get("date", ""),
+            x.get("category", ""),
+            x.get("authenticity", {}).get("final_score", 0),
+            x.get("title", ""),
+        ),
+        reverse=True,
+    )
+    return out
 
 
 def split_and_sort_news(items):

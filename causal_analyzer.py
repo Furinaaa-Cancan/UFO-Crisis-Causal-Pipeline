@@ -299,10 +299,14 @@ def analyze_scraped(scraped_path: Path) -> ScrapedStats:
     coverage_days = (end - start).days + 1
 
     if len(crisis_rows) < 10 or len(ufo_rows) < 30 or coverage_days < 180:
-        reason = (
-            f"样本不足：crisis={len(crisis_rows)} (<10) 或 "
-            f"ufo={len(ufo_rows)} (<30) 或 覆盖天数={coverage_days} (<180)"
-        )
+        fail_reasons = []
+        if len(crisis_rows) < 10:
+            fail_reasons.append(f"crisis={len(crisis_rows)} (<10)")
+        if len(ufo_rows) < 30:
+            fail_reasons.append(f"ufo={len(ufo_rows)} (<30)")
+        if coverage_days < 180:
+            fail_reasons.append(f"覆盖天数={coverage_days} (<180)")
+        reason = f"样本不足：{' 或 '.join(fail_reasons)}"
         return ScrapedStats(
             policy=policy,
             n_ufo=len(ufo_rows),
