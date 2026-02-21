@@ -363,7 +363,26 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(m["metrics"]["ufo_events_total"], 3)
         self.assertGreaterEqual(m["metrics"]["official_source_share"], 0.3)
         self.assertGreaterEqual(m["metrics"]["official_primary_with_media_followup_events"], 1)
+        self.assertEqual(m["lead_basis"], "source_order_proxy")
         self.assertTrue(m["mechanism_passed"])
+
+    def test_mechanism_summary_prefers_lag_when_available(self):
+        scraped = {
+            "ufo_news": [
+                {"source": "NYT 美国新闻", "official_to_media_lag_days": 2, "corroborated_sources": ["Pentagon / DoD 新闻稿"]},
+                {"source": "BBC 美国&加拿大新闻", "official_to_media_lag_days": 0, "corroborated_sources": ["White House 新闻稿"]},
+                {"source": "Reuters", "official_to_media_lag_days": -1, "corroborated_sources": ["White House 新闻稿"]},
+            ]
+        }
+        m = strict_reviewer.summarize_mechanism_signals(
+            scraped,
+            min_official_share=0.3,
+            min_official_lead_events=2,
+        )
+        self.assertEqual(m["lead_basis"], "lag")
+        self.assertEqual(m["metrics"]["lag_observed_events"], 3)
+        self.assertEqual(m["metrics"]["official_lead_by_lag_events"], 2)
+        self.assertTrue(m["gates"]["official_lead_events>=2"])
 
     def test_inference_matrix_transitions(self):
         mechanism_fail = {"mechanism_passed": False}
@@ -385,6 +404,45 @@ class TestStrictLogic(unittest.TestCase):
 
         i3 = strict_reviewer.build_inference_matrix(s2, mechanism_pass)
         self.assertEqual(i3["level"], "STRATEGIC_COMMUNICATION_INDICATION")
+
+    def test_collapse_claim_clusters_outputs_official_media_lag(self):
+        items = [
+            {
+                "category": "ufo",
+                "claim_fingerprint": "fp-ufo-lag",
+                "title": "DoD releases UAP memo",
+                "description": "Official briefing",
+                "date": "2026-02-20",
+                "source": "Pentagon / DoD 新闻稿",
+                "source_type": "rss",
+                "domain": "defense.gov",
+                "url": "https://defense.gov/a",
+                "weight": 3,
+                "authenticity": {"final_score": 90, "corroboration_count": 1, "trusted_corroboration": 1},
+            },
+            {
+                "category": "ufo",
+                "claim_fingerprint": "fp-ufo-lag",
+                "title": "Media report on DoD UAP memo",
+                "description": "Coverage follow-up",
+                "date": "2026-02-21",
+                "source": "NYT 美国新闻",
+                "source_type": "rss",
+                "domain": "nytimes.com",
+                "url": "https://nytimes.com/b",
+                "weight": 3,
+                "authenticity": {"final_score": 87, "corroboration_count": 1, "trusted_corroboration": 1},
+            },
+        ]
+
+        collapsed = scraper.collapse_claim_clusters(items)
+        self.assertEqual(len(collapsed), 1)
+        e = collapsed[0]
+        self.assertEqual(e.get("first_official_date"), "2026-02-20")
+        self.assertEqual(e.get("first_media_date"), "2026-02-21")
+        self.assertEqual(e.get("official_to_media_lag_days"), 1)
+        self.assertTrue(e.get("official_leads_media"))
+        self.assertGreaterEqual(len(e.get("corroboration_timeline", [])), 2)
 
 
 if __name__ == "__main__":

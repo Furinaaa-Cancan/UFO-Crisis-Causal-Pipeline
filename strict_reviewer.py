@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
+from utils import percentile  # type: ignore[import]
+
 
 BASE_DIR = Path(__file__).resolve().parent  # type: ignore
 DATA_DIR = BASE_DIR / "data"
@@ -91,6 +93,9 @@ def summarize_mechanism_signals(
     official_primary = 0
     official_primary_with_media_followup = 0
     media_primary_with_official_secondary = 0
+    lag_observed_events = 0
+    official_lead_by_lag_events = 0
+    lag_values = []
 
     for row in ufo_events:  # type: ignore
         source_pool = set()
@@ -116,16 +121,28 @@ def summarize_mechanism_signals(
         elif official_sources:
             media_primary_with_official_secondary += 1  # type: ignore
 
+        lag = row.get("official_to_media_lag_days")  # type: ignore
+        if isinstance(lag, (int, float)):
+            lag_observed_events += 1  # type: ignore
+            lag_values.append(float(lag))  # type: ignore
+            if lag >= 0:
+                official_lead_by_lag_events += 1  # type: ignore
+
     official_share = (official_involved / float(total)) if total > 0 else 0.0
     official_primary_share = (official_primary / float(total)) if total > 0 else 0.0
     enough_ufo_events = total >= 3
+    # Prefer lag-based lead evidence when available; fallback to source-order proxy.
+    official_lead_events = (
+        official_lead_by_lag_events
+        if lag_observed_events > 0
+        else official_primary_with_media_followup
+    )
+    lag_mean = (sum(lag_values) / float(len(lag_values))) if lag_values else None
 
     gates = {
         "enough_ufo_events_for_mechanism": enough_ufo_events,
         f"official_share>={min_official_share:.2f}": official_share >= min_official_share,
-        f"official_lead_events>={min_official_lead_events}": (
-            official_primary_with_media_followup >= min_official_lead_events
-        ),
+        f"official_lead_events>={min_official_lead_events}": official_lead_events >= min_official_lead_events,
     }
     mechanism_passed = all(gates.values())
 
@@ -136,10 +153,16 @@ def summarize_mechanism_signals(
             "official_primary_events": official_primary,
             "official_primary_with_media_followup_events": official_primary_with_media_followup,
             "media_primary_with_official_secondary_events": media_primary_with_official_secondary,
+            "official_lead_events": official_lead_events,
+            "lag_observed_events": lag_observed_events,
+            "official_lead_by_lag_events": official_lead_by_lag_events,
+            "official_to_media_lag_days_mean": (round(lag_mean, 6) if lag_mean is not None else None),
+            "official_to_media_lag_days_q50": (round(percentile(lag_values, 50), 6) if lag_values else None),
             "official_source_share": round(official_share, 6),  # type: ignore
             "official_primary_share": round(official_primary_share, 6),  # type: ignore
         },
         "gates": gates,
+        "lead_basis": "lag" if lag_observed_events > 0 else "source_order_proxy",
         "mechanism_passed": mechanism_passed,
     }
 
@@ -477,7 +500,9 @@ def main() -> None:
     print(
         "mechanism: "
         f"official_share={report['mechanism']['metrics']['official_source_share']}, "
-        f"official_lead_events={report['mechanism']['metrics']['official_primary_with_media_followup_events']}, "
+        f"official_lead_events={report['mechanism']['metrics']['official_lead_events']}, "
+        f"lag_observed={report['mechanism']['metrics']['lag_observed_events']}, "
+        f"lag_q50={report['mechanism']['metrics']['official_to_media_lag_days_q50']}, "
         f"passed={report['mechanism']['mechanism_passed']}"
     )  # type: ignore
     print(f"[输出] {OUT_FILE}")  # type: ignore

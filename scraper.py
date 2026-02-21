@@ -61,6 +61,21 @@ REDDIT_HEADERS = {
 }
 
 AGGREGATOR_SOURCE_HINTS = ("google news",)
+OFFICIAL_SOURCE_HINTS = (
+    "white house",
+    "pentagon",
+    "department of defense",
+    "dod",
+    "state department",
+    "congress",
+    "senate",
+    "house",
+    "doj",
+    "fbi",
+    "cia",
+    "nasa",
+    "aaro",
+)
 TRACKING_QUERY_KEYS = {
     "fbclid", "gclid", "oc", "ref", "source", "utm_source",
     "utm_medium", "utm_campaign", "utm_term", "utm_content",
@@ -459,6 +474,11 @@ def keyword_hits(text, keywords):
 def source_is_aggregator(source_name):
     lowered = (source_name or "").lower()
     return any(h in lowered for h in AGGREGATOR_SOURCE_HINTS)
+
+
+def source_is_official(source_name):
+    lowered = (source_name or "").lower()
+    return any(h in lowered for h in OFFICIAL_SOURCE_HINTS)
 
 
 def source_is_trusted(item):
@@ -1057,6 +1077,74 @@ def filter_by_policy(items, policy):
     return accepted, rejected
 
 
+def build_corroboration_timeline(group):
+    timeline = []
+    seen = set()
+    for item in group:
+        source = str(item.get("source", "") or "")
+        date = str(item.get("date", "") or "")
+        url = str(item.get("url", "") or "")
+        if not source and not date:
+            continue
+        k = (source, date, url)
+        if k in seen:
+            continue
+        seen.add(k)
+        timeline.append({
+            "source": source,
+            "date": date,
+            "source_type": str(item.get("source_type", "") or ""),
+            "weight": int(item.get("weight", 1) or 1),
+            "url": url,
+            "is_official_source": source_is_official(source),
+        })
+
+    timeline.sort(
+        key=lambda x: (
+            x.get("date", "") == "",
+            x.get("date", ""),  # type: ignore
+            -int(x.get("weight", 1) or 1),  # type: ignore
+            x.get("source", ""),  # type: ignore
+        )
+    )
+    return timeline[:24]  # type: ignore
+
+
+def enrich_official_media_timeline_metrics(event):
+    timeline = event.get("corroboration_timeline", []) or []  # type: ignore
+    official_dates = []
+    media_dates_rss = []
+    media_dates_any = []
+    for row in timeline:
+        d = parse_iso_date(row.get("date"))  # type: ignore
+        if d is None:
+            continue
+        if bool(row.get("is_official_source")):  # type: ignore
+            official_dates.append(d)
+            continue
+        media_dates_any.append(d)  # type: ignore
+        if row.get("source_type") == "rss":  # type: ignore
+            media_dates_rss.append(d)
+
+    media_dates = media_dates_rss if media_dates_rss else media_dates_any
+    first_official = min(official_dates).isoformat() if official_dates else None  # type: ignore
+    first_media = min(media_dates).isoformat() if media_dates else None  # type: ignore
+
+    lag_days = None
+    official_leads = None
+    if first_official and first_media:
+        lag_days = (parse_iso_date(first_media) - parse_iso_date(first_official)).days  # type: ignore
+        official_leads = lag_days >= 0
+
+    event["first_official_date"] = first_official  # type: ignore
+    event["first_media_date"] = first_media  # type: ignore
+    event["official_to_media_lag_days"] = lag_days  # type: ignore
+    event["official_leads_media"] = official_leads  # type: ignore
+    event["official_timeline_observations"] = len(official_dates)  # type: ignore
+    event["media_timeline_observations"] = len(media_dates)  # type: ignore
+    return event
+
+
 def collapse_claim_clusters(items):
     """将通过过滤的同一事件多来源条目合并为事件级记录，避免后续关联重复爆炸。"""
     groups = defaultdict(list)
@@ -1101,6 +1189,7 @@ def collapse_claim_clusters(items):
         primary["corroborated_domains"] = domains  # type: ignore
         primary["evidence_urls"] = urls[:12]  # type: ignore
         primary["primary_source"] = ranked[0].get("source")  # type: ignore
+        primary["corroboration_timeline"] = build_corroboration_timeline(group)  # type: ignore
         if len(sources) > 1:
             primary["source_type"] = "multi"  # type: ignore
 
@@ -1108,7 +1197,7 @@ def collapse_claim_clusters(items):
         auth["corroboration_count"] = max(auth.get("corroboration_count", 0), len(sources))  # type: ignore
         auth["trusted_corroboration"] = max(auth.get("trusted_corroboration", 0), len(trusted_sources))  # type: ignore
 
-        collapsed.append(primary)
+        collapsed.append(enrich_official_media_timeline_metrics(primary))
 
     return merge_crisis_events_by_signature(collapsed)
 
@@ -1170,9 +1259,11 @@ def merge_crisis_events_by_signature(events):
         merged_sources = []
         merged_domains = []
         merged_urls = []
+        merged_timeline = []
         seen_s = set()
         seen_d = set()
         seen_u = set()
+        seen_t = set()
         total_cluster = 0
         for r in group:
             total_cluster += int(r.get("cluster_size", 1) or 1)  # type: ignore
@@ -1188,15 +1279,35 @@ def merge_crisis_events_by_signature(events):
                 if u and u not in seen_u:
                     seen_u.add(u)
                     merged_urls.append(u)
+            for t in r.get("corroboration_timeline", []) or []:  # type: ignore
+                k = (
+                    t.get("source", ""),  # type: ignore
+                    t.get("date", ""),  # type: ignore
+                    t.get("url", ""),  # type: ignore
+                )
+                if k in seen_t:
+                    continue
+                seen_t.add(k)
+                merged_timeline.append(t)
 
         base["cluster_size"] = total_cluster  # type: ignore
         base["corroborated_sources"] = merged_sources  # type: ignore
         base["corroborated_domains"] = merged_domains  # type: ignore
         base["evidence_urls"] = merged_urls[:16]  # type: ignore
+        if merged_timeline:
+            merged_timeline.sort(
+                key=lambda x: (
+                    x.get("date", "") == "",
+                    x.get("date", ""),  # type: ignore
+                    -int(x.get("weight", 1) or 1),  # type: ignore
+                    x.get("source", ""),  # type: ignore
+                )
+            )
+            base["corroboration_timeline"] = merged_timeline[:24]  # type: ignore
         base["merged_claims"] = len(group)  # type: ignore
         auth = base.setdefault("authenticity", {})  # type: ignore
         auth["corroboration_count"] = max(auth.get("corroboration_count", 0), len(merged_sources))  # type: ignore
-        merged.append(base)
+        merged.append(enrich_official_media_timeline_metrics(base))
 
     # Keep deterministic ordering for downstream panel snapshots.
     out = others + merged

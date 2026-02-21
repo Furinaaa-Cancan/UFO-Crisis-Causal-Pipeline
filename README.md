@@ -231,6 +231,13 @@ python research_unified_pipeline.py --only-policy strict --model-policy strict
 - `stage_b_causal_identification`：是否通过因果识别闸门
 - `stage_c_strategic_mechanism`：是否出现“官方先发→媒体跟进”机制信号
 
+抓取结果中的 UFO 事件现在会输出机制字段（用于 stage_c）：
+- `first_official_date`
+- `first_media_date`
+- `official_to_media_lag_days`（>0 表示官方先发后媒体跟进）
+- `official_leads_media`
+- `corroboration_timeline`
+
 对应结论等级：
 - `TEMPORAL_ASSOCIATION_ONLY`（仅相关）
 - `CAUSAL_SIGNAL_WITHOUT_STRATEGIC_MECHANISM`（有因果信号但机制不足）
