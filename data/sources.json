@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "新闻来源配置文件 — 多类型、多机构综合覆盖",
-    "last_updated": "2026-02-22-rev4-official-expansion",
+    "last_updated": "2026-02-22-rev5-official-history-depth",
     "feed_types": [
       "rss",
       "reddit_json"
@@ -161,15 +161,15 @@
     },
     {
       "name": "Pentagon / DoD 新闻稿",
-      "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=9&Site=945&max=50",
+      "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=9&Site=945&max=200",
       "type": "rss",
       "category": "ufo",
       "weight": 3,
-      "note": "美国国防部官方新闻稿（优先 Releases feed，带多重 fallback）",
+      "note": "美国国防部官方新闻稿（优先 Releases feed，提升 max 抓取深度并带多重 fallback）",
       "active": true,
       "fallback_urls": [
-        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=50",
-        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=20"
+        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=200",
+        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=120"
       ]
     },
     {
@@ -322,14 +322,15 @@
     },
     {
       "name": "DoD 新闻发布（官方扩展）",
-      "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=9&Site=945&max=50",
+      "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=9&Site=945&max=200",
       "type": "rss",
       "category": "crisis",
       "weight": 3,
-      "note": "DoD 官方 Releases 源（用于危机窗口中的官方发布监测）",
+      "note": "DoD 官方 Releases 源（危机窗口官方发布监测，提升 max 抓取深度）",
       "active": true,
       "fallback_urls": [
-        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=50"
+        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=200",
+        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=120"
       ]
     },
     {
@@ -346,6 +347,15 @@
       ]
     },
     {
+      "name": "White House Briefings & Statements（官方扩展-历史页2）",
+      "url": "https://www.whitehouse.gov/briefings-statements/feed/?paged=2",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "白宫 Briefings/Statements 历史分页（补历史样本深度）",
+      "active": true
+    },
+    {
       "name": "White House Presidential Actions（官方扩展）",
       "url": "https://www.whitehouse.gov/presidential-actions/feed/",
       "type": "rss",
@@ -358,6 +368,15 @@
       ]
     },
     {
+      "name": "White House Presidential Actions（官方扩展-历史页2）",
+      "url": "https://www.whitehouse.gov/presidential-actions/feed/?paged=2",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "白宫 Presidential Actions 历史分页（补历史样本深度）",
+      "active": true
+    },
+    {
       "name": "House Oversight Committee（官方扩展）",
       "url": "https://oversight.house.gov/feed/",
       "type": "rss",
@@ -367,12 +386,30 @@
       "active": true
     },
     {
+      "name": "House Oversight Committee（官方扩展-历史页2）",
+      "url": "https://oversight.house.gov/feed/?paged=2",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 3,
+      "note": "美国众议院监督委员会历史分页（补历史样本深度）",
+      "active": true
+    },
+    {
       "name": "House Intelligence Committee（官方扩展）",
       "url": "https://intelligence.house.gov/feed/",
       "type": "rss",
       "category": "ufo",
       "weight": 3,
       "note": "美国众议院情报委员会官方 feed（覆盖 UAP 听证线索）",
+      "active": true
+    },
+    {
+      "name": "House Intelligence Committee（官方扩展-历史页2）",
+      "url": "https://intelligence.house.gov/feed/?paged=2",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 3,
+      "note": "美国众议院情报委员会历史分页（补历史样本深度）",
       "active": true
     },
     {
@@ -386,6 +423,15 @@
       "fallback_urls": [
         "https://www.intelligence.senate.gov/feed/"
       ]
+    },
+    {
+      "name": "Senate Intelligence Press Releases（官方扩展-历史页2）",
+      "url": "https://www.intelligence.senate.gov/feed/?paged=2",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 3,
+      "note": "美国参议院情报委员会历史分页（补历史样本深度）",
+      "active": true
     },
     {
       "name": "Senate HSGAC News（官方扩展）",

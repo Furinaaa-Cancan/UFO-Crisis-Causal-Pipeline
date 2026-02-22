@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-02-22T04:38:34.222178+00:00",
+  "generated_at": "2026-02-22T05:01:46.446767+00:00",
   "summary": {
-    "total_ufo_events": 4,
-    "with_official_source": 1,
+    "total_ufo_events": 3,
+    "with_official_source": 0,
     "with_media_source": 3,
     "with_lag_days": 0,
     "with_lag_hours": 0,
@@ -12,34 +12,30 @@
       {
         "reason": "no_official_source_in_timeline",
         "count": 3
-      },
-      {
-        "reason": "no_media_source_in_timeline",
-        "count": 1
       }
     ]
   },
   "events": [
     {
-      "claim_fingerprint": "0fd58e18c0a46378",
-      "date": "2026-02-10",
-      "title": "DOW Addresses Material Obsolescence Through Reverse Engineering Training",
+      "claim_fingerprint": "fed8dc8c4f9dfd64",
+      "date": "2026-02-20",
+      "title": "Trump says US government will declassify its UFO files. Will we actually learn anything this time, or is this a distraction?",
       "cluster_size": 2,
-      "primary_source": "Pentagon / DoD 新闻稿",
-      "first_official_date": "2026-02-10",
-      "first_media_date": null,
-      "first_official_published_at": "2026-02-10T03:00:05+00:00",
-      "first_media_published_at": null,
+      "primary_source": "Space.com",
+      "first_official_date": null,
+      "first_media_date": "2026-02-20",
+      "first_official_published_at": null,
+      "first_media_published_at": "2026-02-20T19:00:00+00:00",
       "official_to_media_lag_days": null,
       "official_to_media_lag_hours": null,
       "official_media_lag_basis": "none",
-      "official_timeline_observations": 2,
-      "media_timeline_observations": 0,
-      "official_timeline_timestamp_observations": 2,
-      "media_timeline_timestamp_observations": 0,
+      "official_timeline_observations": 0,
+      "media_timeline_observations": 2,
+      "official_timeline_timestamp_observations": 0,
+      "media_timeline_timestamp_observations": 2,
       "lead_nonnegative_day": false,
       "lead_strict_candidate": false,
-      "diagnostic_reason": "no_media_source_in_timeline"
+      "diagnostic_reason": "no_official_source_in_timeline"
     },
     {
       "claim_fingerprint": "db5464eec2e57393",
@@ -63,36 +59,15 @@
       "diagnostic_reason": "no_official_source_in_timeline"
     },
     {
-      "claim_fingerprint": "fed8dc8c4f9dfd64",
+      "claim_fingerprint": "08a7da0533c1f483",
       "date": "2026-02-20",
-      "title": "Trump says US government will declassify its UFO files. Will we actually learn anything this time, or is this a distraction?",
+      "title": "Trump directs US government to prepare release of files on aliens and UFOs",
       "cluster_size": 1,
-      "primary_source": "Space.com",
+      "primary_source": "BBC 美国&加拿大新闻",
       "first_official_date": null,
       "first_media_date": "2026-02-20",
       "first_official_published_at": null,
-      "first_media_published_at": "2026-02-20T19:00:00+00:00",
-      "official_to_media_lag_days": null,
-      "official_to_media_lag_hours": null,
-      "official_media_lag_basis": "none",
-      "official_timeline_observations": 0,
-      "media_timeline_observations": 1,
-      "official_timeline_timestamp_observations": 0,
-      "media_timeline_timestamp_observations": 1,
-      "lead_nonnegative_day": false,
-      "lead_strict_candidate": false,
-      "diagnostic_reason": "no_official_source_in_timeline"
-    },
-    {
-      "claim_fingerprint": "2cd06070ae2a68c8",
-      "date": "2026-02-21",
-      "title": "Trump tells Pentagon to release files on UFOs and \"alien and extraterrestrial life\"",
-      "cluster_size": 1,
-      "primary_source": "CBS News 政治（补充）",
-      "first_official_date": null,
-      "first_media_date": "2026-02-21",
-      "first_official_published_at": null,
-      "first_media_published_at": "2026-02-21T00:38:39+00:00",
+      "first_media_published_at": "2026-02-20T08:07:16+00:00",
       "official_to_media_lag_days": null,
       "official_to_media_lag_hours": null,
       "official_media_lag_basis": "none",

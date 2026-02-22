@@ -100,7 +100,7 @@ CLAIM_STOPWORDS = {
 AUTH_RANK = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
 
 UFO_KEYWORDS = [
-    "ufo", "uap", "alien", "extraterrestrial", "flying saucer",
+    "ufo", "ufos", "uap", "uaps", "alien", "extraterrestrial", "flying saucer",
     "unidentified aerial", "unidentified flying", "disclosure",
     "non-human", "nonhuman", "roswell", "area 51", "crash retrieval",
     "bob lazar", "grusch", "elizondo", "aaro", "aatip",
@@ -113,6 +113,73 @@ UFO_KEYWORDS = [
     "unidentified anomalous", "novel aerial", "aerial phenomena",
     "unexplained aerial", "unidentified objects", "unknown aerial",
     "recovered materials", "non-human craft", "reverse engineering",
+]
+
+# Ambiguous terms can appear in non-UFO defense procurement/engineering contexts.
+UFO_AMBIGUOUS_KEYWORDS = [
+    "reverse engineering",
+    "recovered materials",
+    "non-human craft",
+    "transmedium",
+    "novel aerial",
+]
+UFO_CORE_KEYWORDS = [kw for kw in UFO_KEYWORDS if kw not in UFO_AMBIGUOUS_KEYWORDS]
+UFO_EVENT_TOPIC_KEYWORDS = [
+    "ufo files",
+    "uap hearing",
+    "ufo hearing",
+    "unidentified anomalous",
+    "ufos",
+    "uaps",
+    "uap",
+    "ufo",
+    "alien",
+    "extraterrestrial",
+    "non-human intelligence",
+    "crash retrieval",
+    "aaro",
+]
+UFO_ACTOR_KEYWORDS = [
+    "trump",
+    "biden",
+    "white house",
+    "pentagon",
+    "dod",
+    "department of defense",
+    "congress",
+    "senate",
+    "house",
+    "nasa",
+    "aaro",
+    "navy",
+    "air force",
+]
+UFO_DISCLOSURE_ACTION_KEYWORDS = [
+    "declassify",
+    "declassified",
+    "release files",
+    "ufo files",
+    "disclosure",
+    "disclose",
+    "unseal",
+]
+UFO_HEARING_ACTION_KEYWORDS = [
+    "hearing",
+    "testify",
+    "testimony",
+    "briefing",
+]
+UFO_REPORT_ACTION_KEYWORDS = [
+    "report",
+    "assessment",
+    "memo",
+    "review",
+]
+UFO_SIGHTING_ACTION_KEYWORDS = [
+    "sighting",
+    "encounter",
+    "incursion",
+    "anomalous object",
 ]
 
 CRISIS_KEYWORDS = [
@@ -457,6 +524,30 @@ def parse_feed_date(date_str):
     return date_iso, parsed_ok
 
 
+def extract_date_from_url(url):
+    if not url:
+        return None
+    low = str(url).lower()
+    # Common publication URL patterns:
+    #   /2026/02/21/...
+    #   /2026-02-21-...
+    #   ?date=2026-02-21
+    patterns = [
+        r"/(20\d{2})/(0[1-9]|1[0-2])/([0-2]\d|3[01])(?:/|$)",
+        r"/(20\d{2})-(0[1-9]|1[0-2])-([0-2]\d|3[01])(?:[-_/]|$)",
+        r"[?&](?:date|published|pubdate)=(20\d{2})-(0[1-9]|1[0-2])-([0-2]\d|3[01])(?:&|$)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, low)
+        if not m:
+            continue
+        y, mo, d = m.group(1), m.group(2), m.group(3)
+        date_iso = f"{y}-{mo}-{d}"
+        if parse_iso_date(date_iso) is not None:
+            return date_iso
+    return None
+
+
 def has_parseable_published_at(item):
     if item.get("published_at_parsed_ok"):  # type: ignore
         return True
@@ -684,8 +775,15 @@ def fetch_rss_url(url, source, max_items_per_source):
             if not link_text and id_tag:
                 link_text = normalize_text(id_tag.get_text(strip=True))
 
-            date_iso, published_at, parsed_ok = parse_feed_datetime(raw_date)
             canonical_url = canonicalize_url(link_text)
+            date_iso, published_at, parsed_ok = parse_feed_datetime(raw_date)
+            date_inferred_from_url = False
+            if not date_iso and canonical_url:
+                inferred = extract_date_from_url(canonical_url)
+                if inferred:
+                    date_iso = inferred
+                    parsed_ok = True
+                    date_inferred_from_url = True
             domain = urlsplit(canonical_url).netloc.lower() if canonical_url else ""
 
             if not title_text:
@@ -701,6 +799,7 @@ def fetch_rss_url(url, source, max_items_per_source):
                 "published_at": published_at,
                 "raw_date": raw_date,
                 "date_parsed_ok": parsed_ok,
+                "date_inferred_from_url": date_inferred_from_url,
                 "url": canonical_url,  # type: ignore
                 "domain": domain,
                 "description": desc_text[:500],  # type: ignore
@@ -879,7 +978,9 @@ def deduplicate_within_source(items):
                 continue
             seen_url.add(k)
 
-        kd = (source, title_key, date_key)
+        # Avoid collapsing recurring series posts that share titles but differ by URL when date is missing.
+        date_component = date_key if date_key else (f"url:{url_key}" if url_key else "")
+        kd = (source, title_key, date_component)
         if kd in seen_title_date:
             rejected.append({
                 "reason": "duplicate_within_source_title_date",
@@ -915,34 +1016,49 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         if not title:
             hard_reasons.append("empty_title")
 
-        ufo_hits = keyword_hits(text, UFO_KEYWORDS)
+        ufo_core_hits = keyword_hits(text, UFO_CORE_KEYWORDS)
+        ufo_ambiguous_hits = keyword_hits(text, UFO_AMBIGUOUS_KEYWORDS)
+        ufo_hits = ufo_core_hits + [kw for kw in ufo_ambiguous_hits if kw not in ufo_core_hits]
+        # Ambiguous UFO terms are counted as signal only when at least one core UFO term exists.
+        ufo_signal_hits = list(ufo_core_hits)
+        if ufo_core_hits and ufo_ambiguous_hits:
+            ufo_signal_hits.extend([kw for kw in ufo_ambiguous_hits if kw not in ufo_signal_hits])
         crisis_hits = keyword_hits(text, CRISIS_KEYWORDS)
         hard_crisis_hits = keyword_hits(text, CRISIS_HARD_SIGNAL_KEYWORDS)
         official_action_hits = keyword_hits(text, OFFICIAL_ACTION_KEYWORDS)
-        title_ufo_hits = keyword_hits(title.lower(), UFO_KEYWORDS)
+        title_ufo_core_hits = keyword_hits(title.lower(), UFO_CORE_KEYWORDS)
+        title_ufo_ambiguous_hits = keyword_hits(title.lower(), UFO_AMBIGUOUS_KEYWORDS)
+        title_ufo_hits = title_ufo_core_hits + [kw for kw in title_ufo_ambiguous_hits if kw not in title_ufo_core_hits]
+        title_ufo_signal_hits = list(title_ufo_core_hits)
+        if title_ufo_core_hits and title_ufo_ambiguous_hits:
+            title_ufo_signal_hits.extend([kw for kw in title_ufo_ambiguous_hits if kw not in title_ufo_signal_hits])
         title_crisis_hits = keyword_hits(title.lower(), CRISIS_KEYWORDS)
         title_hard_crisis_hits = keyword_hits(title.lower(), CRISIS_HARD_SIGNAL_KEYWORDS)
         title_official_action_hits = keyword_hits(title.lower(), OFFICIAL_ACTION_KEYWORDS)
         title_actor_hits = keyword_hits(title.lower(), TITLE_NATIONAL_POLITICAL_KEYWORDS)
-        if not ufo_hits and not crisis_hits and not hard_crisis_hits and not official_action_hits:
+        if not ufo_signal_hits and not crisis_hits and not hard_crisis_hits and not official_action_hits:
             hard_reasons.append("no_relevance_keywords")
 
         initial_category = item.get("category", "ufo")  # type: ignore
         crisis_signal_strength = len(crisis_hits) + len(hard_crisis_hits) + len(official_action_hits)
-        if len(ufo_hits) > crisis_signal_strength:
+        if len(ufo_signal_hits) > crisis_signal_strength:
             final_category = "ufo"
-        elif crisis_signal_strength > len(ufo_hits):
+        elif crisis_signal_strength > len(ufo_signal_hits):
             final_category = "crisis"
         else:
             final_category = initial_category
         item["category"] = final_category  # type: ignore
-        item["ufo_relevance"] = len(ufo_hits)  # type: ignore
+        item["ufo_relevance"] = len(ufo_signal_hits)  # type: ignore
         item["crisis_relevance"] = len(crisis_hits)  # type: ignore
         item["ufo_keywords"] = ufo_hits[:12]  # type: ignore
+        item["ufo_core_keywords"] = ufo_core_hits[:12]  # type: ignore
+        item["ufo_ambiguous_keywords"] = ufo_ambiguous_hits[:12]  # type: ignore
         item["crisis_keywords"] = crisis_hits[:12]  # type: ignore
         item["hard_crisis_keywords"] = hard_crisis_hits[:12]  # type: ignore
         item["official_action_keywords"] = official_action_hits[:12]  # type: ignore
         item["title_ufo_keywords"] = title_ufo_hits[:12]  # type: ignore
+        item["title_ufo_core_keywords"] = title_ufo_core_hits[:12]  # type: ignore
+        item["title_ufo_ambiguous_keywords"] = title_ufo_ambiguous_hits[:12]  # type: ignore
         item["title_crisis_keywords"] = title_crisis_hits[:12]  # type: ignore
         item["title_hard_crisis_keywords"] = title_hard_crisis_hits[:12]  # type: ignore
         item["title_official_action_keywords"] = title_official_action_hits[:12]  # type: ignore
@@ -1032,7 +1148,7 @@ def evaluate_base_authenticity(items, lookback_days, policy):
             else:
                 score += 6
 
-        score += min(len(ufo_hits) + len(crisis_hits), 8)
+        score += min(len(ufo_signal_hits) + len(crisis_hits), 8)
         score += min(len(official_action_hits), 4)
 
         if final_category == "crisis":
@@ -1057,7 +1173,7 @@ def evaluate_base_authenticity(items, lookback_days, policy):
                 hard_reasons.append("crisis_hard_signal_only_in_description")
 
         if final_category == "ufo":
-            if policy["enforce_ufo_title_signal"] and not title_ufo_hits:  # type: ignore
+            if policy["enforce_ufo_title_signal"] and not title_ufo_signal_hits:  # type: ignore
                 hard_reasons.append("ufo_signal_only_in_description")
 
         item["authenticity"] = {  # type: ignore
@@ -1183,11 +1299,13 @@ def build_corroboration_timeline(group):
         seen.add(k)
         timeline.append({
             "source": source,
+            "title": str(item.get("title", "") or ""),
             "date": date,
             "published_at": published_at,
             "source_type": str(item.get("source_type", "") or ""),
             "weight": int(item.get("weight", 1) or 1),
             "url": url,
+            "domain": str(item.get("domain", "") or ""),
             "is_official_source": source_is_official(source),
         })
 
@@ -1320,7 +1438,8 @@ def collapse_claim_clusters(items):
 
         collapsed.append(enrich_official_media_timeline_metrics(primary))
 
-    return merge_crisis_events_by_signature(collapsed)
+    merged = merge_crisis_events_by_signature(collapsed)
+    return merge_ufo_events_by_signature(merged)
 
 
 def _pick_best_anchor(text, candidates, default="na"):
@@ -1329,6 +1448,16 @@ def _pick_best_anchor(text, candidates, default="na"):
         return default
     # Prefer longer phrase anchors for more stable event signatures.
     return sorted(set(hits), key=len, reverse=True)[0]
+
+
+def _pick_priority_anchor(text, candidates, default="na"):
+    hits = set(keyword_hits(text, candidates))
+    if not hits:
+        return default
+    for c in candidates:
+        if c in hits:
+            return c
+    return default
 
 
 def crisis_event_signature(item):
@@ -1419,6 +1548,8 @@ def merge_crisis_events_by_signature(events):
         if merged_timeline:
             merged_timeline.sort(
                 key=lambda x: (
+                    x.get("published_at", "") == "",
+                    x.get("published_at", ""),  # type: ignore
                     x.get("date", "") == "",
                     x.get("date", ""),  # type: ignore
                     -int(x.get("weight", 1) or 1),  # type: ignore
@@ -1432,6 +1563,176 @@ def merge_crisis_events_by_signature(events):
         merged.append(enrich_official_media_timeline_metrics(base))
 
     # Keep deterministic ordering for downstream panel snapshots.
+    out = others + merged
+    out.sort(
+        key=lambda x: (
+            x.get("date", ""),  # type: ignore
+            x.get("category", ""),  # type: ignore
+            x.get("authenticity", {}).get("final_score", 0),  # type: ignore
+            x.get("title", ""),  # type: ignore
+        ),
+        reverse=True,
+    )
+    return out
+
+
+def infer_ufo_action_tag(text):
+    if keyword_hits(text, UFO_DISCLOSURE_ACTION_KEYWORDS):
+        return "disclosure"
+    if keyword_hits(text, UFO_HEARING_ACTION_KEYWORDS):
+        return "hearing"
+    if keyword_hits(text, UFO_REPORT_ACTION_KEYWORDS):
+        return "report"
+    if keyword_hits(text, UFO_SIGHTING_ACTION_KEYWORDS):
+        return "sighting"
+    return "na"
+
+
+def infer_ufo_topic_tag(text):
+    if keyword_hits(
+        text,
+        [
+            "ufo",
+            "ufos",
+            "uap",
+            "uaps",
+            "ufo files",
+            "uap hearing",
+            "ufo hearing",
+            "unidentified anomalous",
+            "aerial phenomena",
+        ],
+    ):
+        return "ufo_uap"
+    if keyword_hits(text, ["alien", "extraterrestrial", "non-human intelligence", "non-human"]):
+        return "alien_nhi"
+    if keyword_hits(text, ["crash retrieval", "recovered materials", "non-human craft"]):
+        return "retrieval_claim"
+    if keyword_hits(text, ["aaro"]):
+        return "aaro"
+    return "na"
+
+
+def ufo_event_signature(item):
+    """
+    Coarse UFO event signature for cross-source same-event merge.
+    Uses week bucket + actor + action + topic anchors to avoid over-fragmentation.
+    """
+    d = parse_iso_date(item.get("date"))  # type: ignore
+    if d is None:
+        week_key = "na"
+    else:
+        week_start = d - timedelta(days=d.weekday())  # type: ignore
+        week_key = week_start.isoformat()  # type: ignore
+
+    title = normalize_text(item.get("title", "")).lower()  # type: ignore
+    desc = strip_html(item.get("description", "")).lower()  # type: ignore
+    text = f"{title} {desc}"
+    action_tag = infer_ufo_action_tag(text)
+    actor_anchor = _pick_priority_anchor(text, UFO_ACTOR_KEYWORDS, default="na")
+    topic_anchor = infer_ufo_topic_tag(text)
+
+    if action_tag == "na" and actor_anchor == "na":
+        return None
+    return f"{week_key}|act:{action_tag}|topic:{topic_anchor}|actor:{actor_anchor}"
+
+
+def merge_ufo_events_by_signature(events):
+    ufo = [e for e in events if e.get("category") == "ufo"]  # type: ignore
+    others = [e for e in events if e.get("category") != "ufo"]  # type: ignore
+    if not ufo:
+        return events
+
+    buckets = defaultdict(list)
+    for row in ufo:
+        sig = ufo_event_signature(row)
+        if sig is None:
+            sig = (
+                f"solo:{row.get('claim_fingerprint','na')}|{row.get('date','na')}|"  # type: ignore
+                f"{normalize_text(str(row.get('source','na')))}|{normalize_text(str(row.get('title','na')))[:60]}"
+            )
+        buckets[sig].append(row)  # type: ignore
+
+    merged = []
+    for sig, group in buckets.items():  # type: ignore
+        if len(group) == 1:
+            single = dict(group[0])  # type: ignore
+            if not str(sig).startswith("solo:"):
+                single["ufo_event_signature"] = sig  # type: ignore
+            merged.append(enrich_official_media_timeline_metrics(single))
+            continue
+
+        ranked = sorted(
+            group,
+            key=lambda x: (
+                x.get("authenticity", {}).get("final_score", 0),  # type: ignore
+                x.get("cluster_size", 1),  # type: ignore
+                1 if has_parseable_published_at(x) else 0,  # type: ignore
+                len(x.get("title", "")),  # type: ignore
+            ),
+            reverse=True,
+        )
+        base = dict(ranked[0])  # type: ignore
+
+        merged_sources = []
+        merged_domains = []
+        merged_urls = []
+        merged_timeline = []
+        seen_s = set()
+        seen_d = set()
+        seen_u = set()
+        seen_t = set()
+        total_cluster = 0
+        total_claims = 0
+        for r in group:
+            total_cluster += int(r.get("cluster_size", 1) or 1)  # type: ignore
+            total_claims += int(r.get("merged_claims", 1) or 1)  # type: ignore
+            for s in r.get("corroborated_sources", []) or []:  # type: ignore
+                if s and s not in seen_s:
+                    seen_s.add(s)
+                    merged_sources.append(s)
+            for d in r.get("corroborated_domains", []) or []:  # type: ignore
+                if d and d not in seen_d:
+                    seen_d.add(d)
+                    merged_domains.append(d)
+            for u in r.get("evidence_urls", []) or []:  # type: ignore
+                if u and u not in seen_u:
+                    seen_u.add(u)
+                    merged_urls.append(u)
+            for t in r.get("corroboration_timeline", []) or []:  # type: ignore
+                k = (
+                    t.get("source", ""),  # type: ignore
+                    t.get("date", ""),  # type: ignore
+                    t.get("published_at", ""),  # type: ignore
+                    t.get("url", ""),  # type: ignore
+                )
+                if k in seen_t:
+                    continue
+                seen_t.add(k)
+                merged_timeline.append(t)
+
+        base["cluster_size"] = total_cluster  # type: ignore
+        base["merged_claims"] = total_claims  # type: ignore
+        base["corroborated_sources"] = merged_sources  # type: ignore
+        base["corroborated_domains"] = merged_domains  # type: ignore
+        base["evidence_urls"] = merged_urls[:20]  # type: ignore
+        base["ufo_event_signature"] = sig  # type: ignore
+        if merged_timeline:
+            merged_timeline.sort(
+                key=lambda x: (
+                    x.get("published_at", "") == "",
+                    x.get("published_at", ""),  # type: ignore
+                    x.get("date", "") == "",
+                    x.get("date", ""),  # type: ignore
+                    -int(x.get("weight", 1) or 1),  # type: ignore
+                    x.get("source", ""),  # type: ignore
+                )
+            )
+            base["corroboration_timeline"] = merged_timeline[:32]  # type: ignore
+        auth = base.setdefault("authenticity", {})  # type: ignore
+        auth["corroboration_count"] = max(auth.get("corroboration_count", 0), len(merged_sources))  # type: ignore
+        merged.append(enrich_official_media_timeline_metrics(base))
+
     out = others + merged
     out.sort(
         key=lambda x: (
@@ -1531,8 +1832,12 @@ def build_official_lead_diagnostics(ufo_news):
         key=lambda x: (
             0 if x.get("lead_strict_candidate") else 1,  # type: ignore
             0 if x.get("lead_nonnegative_day") else 1,  # type: ignore
-            -(x.get("official_to_media_lag_days") or -999),  # type: ignore
-            -(x.get("cluster_size") or 1),  # type: ignore
+            (
+                -float(x.get("official_to_media_lag_days"))  # type: ignore
+                if isinstance(x.get("official_to_media_lag_days"), (int, float))  # type: ignore
+                else 999.0
+            ),
+            -int(x.get("cluster_size") or 1),  # type: ignore
             x.get("date", "") or "",  # type: ignore
         )
     )

@@ -49,7 +49,7 @@
 ├── pre_registration.md    # 预注册草案
 ├── RESEARCH_STRICT_REVIEW.md # 顶刊方法对照与漏洞清单
 └── data/
-    ├── sources.json       # 来源配置（28个来源，权重1-3，支持 fallback_url）
+    ├── sources.json       # 来源配置（权重1-3，支持 fallback_urls 与官方历史分页源）
     ├── events_v2.json     # 主数据集（置信度评级 + 政府主动行为标记，手工核实）
     ├── scraped_news.json  # 爬虫输出（含 source_health/source_stats/rejected_news）
     ├── causal_panel.json  # 长期面板（日度累计）
@@ -84,6 +84,7 @@
 - `active: false` — 暂时禁用该来源（如 VICE 已停刊）
 - `fallback_url` — 主 URL 失败时自动重试的备用地址（如 Reuters 迁移后的新路径）
 - `fallback_urls` — 多备用地址列表（按顺序重试，适合官方站点多入口）
+- `?paged=2` 等历史分页源 — 用于补更早官方样本（White House / House / Senate）
 - `weight` — 影响结果排序优先级，政府/通讯社来源权重最高
 
 当前已扩展官方源（DoD / White House / House / Senate）并默认开启：
@@ -91,6 +92,7 @@
 - White House `news` / `briefings-statements` / `presidential-actions`
 - House Oversight / House Intelligence
 - Senate Intelligence / Senate HSGAC
+- 官方历史分页（`?paged=2`）用于扩大时间跨度
 
 ---
 
@@ -130,6 +132,8 @@ python scraper.py --max-workers 8
 > - 来源健康审计（可用率/fallback命中/错误类型/替代建议）
 > - 时间覆盖审计（目标窗口、原始时间跨度、通过样本时间跨度、来源近期覆盖率）
 > - 真实性过滤摘要（原始条目数、过滤后条目数、主要拒绝原因）
+> - 日期解析兜底（RSS 缺失日期时尝试从 URL 路径提取 `YYYY/MM/DD`）
+> - UFO 事件语义合并（按周+actor+action+topic 合并同事件跨源报道）
 > - 关联时间窗口内的危机↔UFO关联对（默认60天）
 > - 与 `events_v2.json` 历史数据集的交叉验证结果
 > - 结果保存至 `data/scraped_news.json`（包含通过条目与拒绝条目）

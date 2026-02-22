@@ -230,6 +230,90 @@ class TestStrictLogic(unittest.TestCase):
             ],
         )
 
+    def test_extract_date_from_url_fallback(self):
+        self.assertEqual(
+            scraper.extract_date_from_url("https://whitehouse.gov/briefings-statements/2026/02/21/example"),
+            "2026-02-21",
+        )
+        self.assertEqual(
+            scraper.extract_date_from_url("https://example.com/news/2026-01-09-uap-hearing"),
+            "2026-01-09",
+        )
+        self.assertIsNone(scraper.extract_date_from_url("https://example.com/news/latest"))
+
+    def test_deduplicate_within_source_keeps_distinct_urls_when_date_missing(self):
+        items = [
+            {"source": "Senate Feed", "title": "Closed Briefing: Intelligence Matters", "date": "", "url": "https://x/2026/01/30/a"},
+            {"source": "Senate Feed", "title": "Closed Briefing: Intelligence Matters", "date": "", "url": "https://x/2026/01/08/b"},
+        ]
+        unique, rejected = scraper.deduplicate_within_source(items)
+        self.assertEqual(len(unique), 2)
+        self.assertEqual(len(rejected), 0)
+
+    def test_base_authenticity_ambiguous_ufo_term_needs_core_signal(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        items = [
+            {
+                "source": "Pentagon / DoD 新闻稿",
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 3,
+                "title": "Department expands reverse engineering training program",
+                "description": "Procurement and workforce update",
+                "date": today,
+                "published_at": "2026-02-22T09:30:00+00:00",
+                "date_parsed_ok": True,
+                "url": "https://www.defense.gov/news/2026/02/22/program",
+                "domain": "www.defense.gov",
+            },
+        ]
+        accepted, rejected = scraper.evaluate_base_authenticity(
+            items=items,
+            lookback_days=30,
+            policy=scraper.POLICY_CONFIGS[scraper.POLICY_LENIENT],
+        )
+        self.assertEqual(len(accepted), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("no_relevance_keywords", rejected[0]["reason"])
+
+    def test_ufo_signature_merge_combines_same_event_across_sources(self):
+        items = [
+            {
+                "category": "ufo",
+                "claim_fingerprint": "fp-a",
+                "title": "Trump tells Pentagon to release files on UFOs",
+                "description": "White House disclosure move",
+                "date": "2026-02-21",
+                "published_at": "2026-02-21T00:30:00+00:00",
+                "source": "CBS News 政治（补充）",
+                "source_type": "rss",
+                "domain": "cbsnews.com",
+                "url": "https://cbsnews.com/a",
+                "weight": 2,
+                "authenticity": {"final_score": 88, "corroboration_count": 1, "trusted_corroboration": 1},
+            },
+            {
+                "category": "ufo",
+                "claim_fingerprint": "fp-b",
+                "title": "Trump says US government will declassify its UFO files",
+                "description": "Disclosure discussion",
+                "date": "2026-02-20",
+                "published_at": "2026-02-20T19:00:00+00:00",
+                "source": "Space.com",
+                "source_type": "rss",
+                "domain": "space.com",
+                "url": "https://space.com/b",
+                "weight": 2,
+                "authenticity": {"final_score": 85, "corroboration_count": 1, "trusted_corroboration": 1},
+            },
+        ]
+        collapsed = scraper.collapse_claim_clusters(items)
+        self.assertEqual(len(collapsed), 1)
+        e = collapsed[0]
+        self.assertGreaterEqual(e.get("cluster_size", 0), 2)
+        self.assertGreaterEqual(len(e.get("corroborated_sources", [])), 2)
+        self.assertTrue(str(e.get("ufo_event_signature", "")).startswith("2026-02-16|act:disclosure"))
+
     def test_base_authenticity_prefers_official_items_with_parseable_timestamp(self):
         today = datetime.now(timezone.utc).date().isoformat()
         items = [
