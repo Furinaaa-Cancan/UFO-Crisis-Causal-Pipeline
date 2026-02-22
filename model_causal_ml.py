@@ -40,11 +40,13 @@ BASE_DIR = Path(__file__).resolve().parent  # type: ignore
 DATA_DIR = BASE_DIR / "data"
 PANEL_FILE = DATA_DIR / "causal_panel.json"  # type: ignore
 OUT_FILE = DATA_DIR / "model_causal_ml_report.json"
+EVENTS_FILE = DATA_DIR / "events_v2.json"
 
 MIN_OBS_DAYS = 120
 MIN_SHOCK_DAYS = 10
 SEED = 20260221
 PERMUTATIONS = 2000
+EV2_MIN_DATES = 5
 
 
 def parse_args() -> argparse.Namespace:
@@ -85,11 +87,53 @@ def _safe_float(v, default=0.0) -> float:
         return default
 
 
+def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
+    if not events_path.exists():  # type: ignore
+        return []
+    try:
+        with events_path.open("r", encoding="utf-8") as f:  # type: ignore
+            payload = json.load(f)  # type: ignore
+        out = []
+        for row in payload.get("correlations", []):  # type: ignore
+            d_str = row.get("crisis", {}).get("date")  # type: ignore
+            if not d_str:
+                continue
+            try:
+                out.append(parse_date(d_str))  # type: ignore
+            except Exception:
+                continue
+        return sorted(set(out))  # type: ignore
+    except Exception:
+        return []
+
+
+def select_shock_days(
+    crisis_series: Dict[date, float],  # type: ignore
+    start: date,
+    end: date,
+    events_path: Path = EVENTS_FILE,
+) -> tuple[List[date], float | None, str]:
+    ev2_dates = _load_events_v2_crisis_dates(events_path)
+    ev2_in_panel = [d for d in ev2_dates if start <= d <= end]
+    if len(ev2_in_panel) >= EV2_MIN_DATES:
+        return sorted(ev2_in_panel), None, "events_v2_crisis_dates"
+
+    crisis_nonzero = [v for v in crisis_series.values() if v > 0]  # type: ignore
+    thr75 = compute_shock_threshold(crisis_nonzero)
+    news75 = sorted([d for d, v in crisis_series.items() if v >= thr75])  # type: ignore
+    thr90 = compute_shock_threshold(crisis_nonzero, q=90.0)
+    news90 = sorted([d for d, v in crisis_series.items() if v >= thr90])  # type: ignore
+    if news90:
+        return news90, thr90, "news_volume_90pct_fallback"
+    return news75, thr75, "news_volume_75pct_fallback"
+
+
 def build_dataset(
     rows: List[dict],
     crisis_threshold: float,
     effect_lag_start: int = 1,
     effect_window_days: int = 7,
+    shock_dates: set[date] | None = None,  # type: ignore
 ) -> tuple[List[dict], List[str]]:
     """
     构建样本：
@@ -157,7 +201,10 @@ def build_dataset(
         future_ufo = [_safe_float(by_date[fd].get("ufo_count", 0)) for fd in future_dates]  # type: ignore
         y = mean(future_ufo) if future_ufo else 0.0
         crisis = _safe_float(cur.get("crisis_count", 0))
-        t = 1 if crisis >= crisis_threshold else 0
+        if shock_dates is not None:
+            t = 1 if d in shock_dates else 0
+        else:
+            t = 1 if crisis >= crisis_threshold else 0
 
         data.append({
             "date": d.isoformat(),  # type: ignore
@@ -503,7 +550,9 @@ def main() -> None:
             "n_rows": len(rows),
             "n_samples_for_ml": 0,
             "shock_threshold": None,
+            "shock_source": "none",
             "shock_days": 0,
+            "shock_days_defined": 0,
             "treated_ratio": None,
             "effect_lag_start": int(args.effect_lag_start),
             "effect_window_days": int(args.effect_window_days),
@@ -538,27 +587,33 @@ def main() -> None:
     if len(rows) < args.min_observed_days:
         out["reason"] = f"observed_days < {args.min_observed_days}，样本不足"  # type: ignore
     else:
-        crisis_nonzero = [_safe_float(r.get("crisis_count", 0)) for r in rows if _safe_float(r.get("crisis_count", 0)) > 0]  # type: ignore
-        threshold = compute_shock_threshold(crisis_nonzero)
+        dates = [parse_date(r["date"]) for r in rows]  # type: ignore
+        crisis_series = {parse_date(r["date"]): _safe_float(r.get("crisis_count", 0)) for r in rows}  # type: ignore
+        shocks_defined, threshold, shock_source = select_shock_days(crisis_series, min(dates), max(dates))
+        shock_set = set(shocks_defined)
         data, feature_names = build_dataset(
             rows,
-            threshold,
+            threshold if isinstance(threshold, (int, float)) else 0.0,
             effect_lag_start=args.effect_lag_start,
             effect_window_days=args.effect_window_days,
+            shock_dates=shock_set,
         )
         shock_days = sum(1 for r in data if int(r["t"]) == 1)
 
-        out["sample"]["shock_threshold"] = round(threshold, 6)  # type: ignore
+        out["sample"]["shock_threshold"] = round(threshold, 6) if isinstance(threshold, (int, float)) else None  # type: ignore
+        out["sample"]["shock_source"] = shock_source  # type: ignore
+        out["sample"]["shock_days_defined"] = len(shocks_defined)  # type: ignore
         out["sample"]["shock_days"] = shock_days  # type: ignore
         out["sample"]["n_samples_for_ml"] = len(data)  # type: ignore
         out["sample"]["n_features"] = len(feature_names)  # type: ignore
         out["sample"]["feature_names"] = feature_names  # type: ignore
         out["sample"]["treated_ratio"] = (round(shock_days / float(len(data)), 6) if data else None)  # type: ignore
 
+        effective_min_shocks = EV2_MIN_DATES if shock_source == "events_v2_crisis_dates" else args.min_shock_days
         if len(data) < args.min_observed_days:
             out["reason"] = f"n_samples_for_ml < {args.min_observed_days}，构造特征后样本不足"  # type: ignore
-        elif shock_days < args.min_shock_days:
-            out["reason"] = f"shock_days < {args.min_shock_days}，处理组样本不足"  # type: ignore
+        elif shock_days < effective_min_shocks:
+            out["reason"] = f"shock_days < {effective_min_shocks}，处理组样本不足"  # type: ignore
         else:
             ys = [float(r["y"]) for r in data]
             ts = [int(r["t"]) for r in data]
@@ -638,7 +693,10 @@ def main() -> None:
     print("=== Causal ML (Orthogonal Forest) ===")
     print(f"status: {out['status']}")  # type: ignore
     print(f"reason: {out['reason']}")  # type: ignore
-    print(f"shock_days: {out['sample']['shock_days']}")  # type: ignore
+    print(
+        f"shock_days: {out['sample']['shock_days']} "
+        f"(defined={out['sample']['shock_days_defined']}, source={out['sample']['shock_source']})"
+    )  # type: ignore
     print(f"causal_ml_passed: {out['gates']['causal_ml_passed']}")  # type: ignore
     print(f"[输出] {OUT_FILE}")  # type: ignore
 

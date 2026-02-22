@@ -36,6 +36,7 @@ DATA_DIR = BASE_DIR / "data"
 PANEL_FILE = DATA_DIR / "causal_panel.json"  # type: ignore
 TOPIC_FILE = DATA_DIR / "control_panels" / "control_topics.csv"
 OUT_FILE = DATA_DIR / "model_did_report.json"
+EVENTS_FILE = DATA_DIR / "events_v2.json"
 
 WINDOWS = (7, 14, 30)
 PERMUTATIONS = 2000
@@ -45,6 +46,7 @@ MIN_SHOCK_DAYS = 8
 PLACEBO_BUFFER_DAYS = 7
 SHOCK_COUNT_FLOOR = 2.0
 MAX_SHOCKS_FOR_ESTIMATION = 180
+EV2_MIN_DATES = 5
 
 
 # parse_date, percentile, quantile, compute_shock_threshold 已移至 utils.py
@@ -61,6 +63,47 @@ def downsample_dates_evenly(dates: List[date], max_n: int) -> List[date]:
         return [dates[len(dates) // 2]]
     last = len(dates) - 1
     return [dates[(i * last) // (max_n - 1)] for i in range(max_n)]  # type: ignore
+
+
+def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
+    if not events_path.exists():  # type: ignore
+        return []
+    try:
+        with events_path.open("r", encoding="utf-8") as f:  # type: ignore
+            payload = json.load(f)  # type: ignore
+        out = []
+        for row in payload.get("correlations", []):  # type: ignore
+            d_str = row.get("crisis", {}).get("date")  # type: ignore
+            if not d_str:
+                continue
+            try:
+                out.append(parse_date(d_str))  # type: ignore
+            except Exception:
+                continue
+        return sorted(set(out))  # type: ignore
+    except Exception:
+        return []
+
+
+def select_shock_days(
+    crisis_series: Dict[date, float],  # type: ignore
+    start: date,
+    end: date,
+    events_path: Path = EVENTS_FILE,
+) -> tuple[List[date], float | None, str]:
+    ev2_dates = _load_events_v2_crisis_dates(events_path)
+    ev2_in_panel = [d for d in ev2_dates if start <= d <= end]
+    if len(ev2_in_panel) >= EV2_MIN_DATES:
+        return sorted(ev2_in_panel), None, "events_v2_crisis_dates"
+
+    crisis_nonzero = [v for v in crisis_series.values() if v > 0]  # type: ignore
+    thr75 = compute_shock_threshold(crisis_nonzero)
+    news75 = sorted([d for d, v in crisis_series.items() if v >= thr75])  # type: ignore
+    thr90 = compute_shock_threshold(crisis_nonzero, q=90.0)
+    news90 = sorted([d for d, v in crisis_series.items() if v >= thr90])  # type: ignore
+    if news90:
+        return news90, thr90, "news_volume_90pct_fallback"
+    return news75, thr75, "news_volume_75pct_fallback"
 
 
 def load_topic_series() -> Dict[str, Dict[date, float]]:
@@ -194,6 +237,7 @@ def main() -> None:
         "status": "pending",
         "reason": "",
         "shock_threshold": None,
+        "shock_source": "none",
         "shock_days": 0,
         "shock_days_used": 0,
         "shock_sampling": "full",
@@ -215,22 +259,24 @@ def main() -> None:
         ufo_series = {parse_date(r["date"]): float(r.get("ufo_count", 0)) for r in rows}  # type: ignore
         crisis_series = {parse_date(r["date"]): float(r.get("crisis_count", 0)) for r in rows}  # type: ignore
 
-        crisis_nonzero = [v for v in crisis_series.values() if v > 0]  # type: ignore
-        thr = compute_shock_threshold(crisis_nonzero)
-        shocks = sorted([d for d in dates if crisis_series.get(d, 0.0) >= thr])  # type: ignore
+        start = min(dates)
+        end = max(dates)
+        shocks, thr, shock_source = select_shock_days(crisis_series, start, end)
         shock_set = set(shocks)
         placebo_pool = [
             d for d in dates
             if d not in shock_set and min_distance_to_shocks(d, shocks) > args.placebo_buffer_days
         ]
 
-        out["shock_threshold"] = round(thr, 6)  # type: ignore
+        out["shock_threshold"] = round(thr, 6) if isinstance(thr, (int, float)) else None  # type: ignore
+        out["shock_source"] = shock_source  # type: ignore
         out["shock_days"] = len(shocks)  # type: ignore
 
-        if len(shocks) < args.min_shock_days:
-            out["reason"] = f"shock_days < {args.min_shock_days}，DID 估计不稳定"  # type: ignore
+        effective_min_shocks = EV2_MIN_DATES if shock_source == "events_v2_crisis_dates" else args.min_shock_days
+        if len(shocks) < effective_min_shocks:
+            out["reason"] = f"shock_days < {effective_min_shocks}，DID 估计不稳定"  # type: ignore
         else:
-            max_shocks = max(args.min_shock_days, int(args.max_shocks_for_estimation))
+            max_shocks = max(effective_min_shocks, int(args.max_shocks_for_estimation))
             shocks_for_estimation = downsample_dates_evenly(shocks, max_shocks)
             out["shock_days_used"] = len(shocks_for_estimation)  # type: ignore
             out["shock_sampling"] = "downsample_evenly" if len(shocks_for_estimation) < len(shocks) else "full"  # type: ignore
@@ -272,7 +318,10 @@ def main() -> None:
     print("=== Window Mean-Difference Test ===")
     print(f"status: {out['status']}")  # type: ignore
     print(f"reason: {out['reason']}")  # type: ignore
-    print(f"shock_days: {out['shock_days']} (used={out['shock_days_used']}, sampling={out['shock_sampling']})")  # type: ignore
+    print(
+        f"shock_days: {out['shock_days']} "
+        f"(used={out['shock_days_used']}, sampling={out['shock_sampling']}, source={out['shock_source']})"
+    )  # type: ignore
     print(f"did_passed: {out['gates']['did_passed']}")  # type: ignore
     print(f"[输出] {OUT_FILE}")  # type: ignore
 

@@ -34,12 +34,14 @@ DATA_DIR = BASE_DIR / "data"
 COUNTRY_FILE = DATA_DIR / "control_panels" / "country_controls.csv"
 PANEL_FILE = DATA_DIR / "causal_panel.json"  # type: ignore
 OUT_FILE = DATA_DIR / "model_synth_control_report.json"
+EVENTS_FILE = DATA_DIR / "events_v2.json"
 
 SEED = 20260221
 PERMUTATIONS = 2000
 MIN_SHOCK_DAYS = 8
 MIN_PRE_DAYS = 30
 MIN_POST_DAYS = 8
+EV2_MIN_DATES = 5
 # parse_date, compute_shock_threshold 已移至 utils.py
 
 
@@ -54,14 +56,53 @@ def load_country_rows() -> List[dict]:
     return rows
 
 
-def load_us_shock_days(policy: str = "strict-balanced") -> List[date]:
+def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
+    if not events_path.exists():  # type: ignore
+        return []
+    try:
+        with events_path.open("r", encoding="utf-8") as f:  # type: ignore
+            payload = json.load(f)  # type: ignore
+        out = []
+        for row in payload.get("correlations", []):  # type: ignore
+            d_str = row.get("crisis", {}).get("date")  # type: ignore
+            if not d_str:
+                continue
+            try:
+                out.append(parse_date(d_str))  # type: ignore
+            except Exception:
+                continue
+        return sorted(set(out))  # type: ignore
+    except Exception:
+        return []
+
+
+def load_us_shock_days(
+    policy: str = "strict-balanced",
+    start: date | None = None,
+    end: date | None = None,
+) -> tuple[List[date], float | None, str]:
     rows = _read_panel_rows(PANEL_FILE, policy)
     if not rows:
-        return []
+        return [], None, "none"
     series = {parse_date(r["date"]): float(r.get("crisis_count", 0)) for r in rows}  # type: ignore
+    if start is None:
+        start = min(series.keys())  # type: ignore
+    if end is None:
+        end = max(series.keys())  # type: ignore
+
+    ev2_dates = _load_events_v2_crisis_dates(EVENTS_FILE)
+    ev2_in_panel = [d for d in ev2_dates if start <= d <= end]
+    if len(ev2_in_panel) >= EV2_MIN_DATES:
+        return sorted(ev2_in_panel), None, "events_v2_crisis_dates"
+
     nonzero = [v for v in series.values() if v > 0]  # type: ignore
-    thr = compute_shock_threshold(nonzero)
-    return sorted([d for d, v in series.items() if v >= thr])  # type: ignore
+    thr75 = compute_shock_threshold(nonzero)
+    news75 = sorted([d for d, v in series.items() if v >= thr75])  # type: ignore
+    thr90 = compute_shock_threshold(nonzero, q=90.0)
+    news90 = sorted([d for d, v in series.items() if v >= thr90])  # type: ignore
+    if news90:
+        return news90, thr90, "news_volume_90pct_fallback"
+    return news75, thr75, "news_volume_75pct_fallback"
 
 
 def split_pre_post_dates(us_dates: List[date], shocks: List[date], post_horizon_days: int = 7) -> tuple[List[date], List[date]]:
@@ -120,6 +161,9 @@ def main() -> None:
         "countries": [],
         "weights": {},
         "metrics": {
+            "shock_days": 0,
+            "shock_threshold": None,
+            "shock_source": "none",
             "att_gap": None,
             "p_value": None,
             "p_value_negative": None,
@@ -161,11 +205,20 @@ def main() -> None:
             if len(donors_all) < 3:
                 out["reason"] = "对照国家数量不足（需要 >=3）"  # type: ignore
             else:
-                shocks = load_us_shock_days(args.policy)
-                if len(shocks) < args.min_shock_days:
-                    out["reason"] = f"US 冲击日不足（{len(shocks)} < {args.min_shock_days}），无法估计"  # type: ignore
+                us_dates = sorted(us.keys())  # type: ignore
+                shocks, shock_thr, shock_source = load_us_shock_days(
+                    args.policy,
+                    start=us_dates[0],
+                    end=us_dates[-1],
+                )
+                out["metrics"]["shock_days"] = len(shocks)  # type: ignore
+                out["metrics"]["shock_threshold"] = round(shock_thr, 6) if isinstance(shock_thr, (int, float)) else None  # type: ignore
+                out["metrics"]["shock_source"] = shock_source  # type: ignore
+
+                effective_min_shocks = EV2_MIN_DATES if shock_source == "events_v2_crisis_dates" else args.min_shock_days
+                if len(shocks) < effective_min_shocks:
+                    out["reason"] = f"US 冲击日不足（{len(shocks)} < {effective_min_shocks}），无法估计"  # type: ignore
                 else:
-                    us_dates = sorted(us.keys())  # type: ignore
                     pre_dates, post_dates = split_pre_post_dates(us_dates, shocks, post_horizon_days=7)
                     out["metrics"]["n_pre_dates"] = len(pre_dates)  # type: ignore
                     out["metrics"]["n_post_dates"] = len(post_dates)  # type: ignore
