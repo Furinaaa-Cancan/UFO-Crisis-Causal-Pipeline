@@ -173,6 +173,11 @@ python causal_analyzer.py --panel-policy strict-balanced --min-panel-observed-ra
 
 # 严格审批闸门：未通过则返回非零退出码（适合CI）
 python causal_analyzer.py --fail-on-reject
+
+# 快速评估模式（先看方向，再跑全量）
+python causal_analyzer.py --no-update-panel --fast-mode
+# 或手工设置置换次数
+python causal_analyzer.py --no-update-panel --permutations 2000
 ```
 
 面板检验包含：

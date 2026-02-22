@@ -42,6 +42,7 @@ REPORT_FILE = DATA_DIR / "causal_report.json"
 
 SEED = 20260221
 PERMUTATIONS = 20000
+FAST_MODE_PERMUTATIONS = 2000
 WINDOWS = (7, 14, 30)
 SHOCK_COUNT_FLOOR = 2.0
 DEFAULT_SCRAPER_LOOKBACK = 120
@@ -144,7 +145,7 @@ class ApprovalResult:
     reason: str
 
 
-def analyze_events_v2(events_path: Path) -> EventsV2Stats:
+def analyze_events_v2(events_path: Path, permutations: int = PERMUTATIONS) -> EventsV2Stats:
     with events_path.open("r", encoding="utf-8") as f:  # type: ignore
         payload = json.load(f)  # type: ignore
 
@@ -170,7 +171,8 @@ def analyze_events_v2(events_path: Path) -> EventsV2Stats:
     abs_means = []
     within_30 = []
     within_60 = []
-    for _ in range(PERMUTATIONS):
+    n_perm = max(200, int(permutations))
+    for _ in range(n_perm):
         shuffled = ufo_dates[:]  # type: ignore
         rng.shuffle(shuffled)
         sim_gaps = [(u - c).days for c, u in zip(crisis_dates, shuffled)]
@@ -178,9 +180,9 @@ def analyze_events_v2(events_path: Path) -> EventsV2Stats:
         within_30.append(sum(0 <= g <= 30 for g in sim_gaps))
         within_60.append(sum(0 <= g <= 60 for g in sim_gaps))
 
-    p_abs = sum(x <= obs_mean_abs for x in abs_means) / PERMUTATIONS
-    p_30 = sum(x >= obs_30 for x in within_30) / PERMUTATIONS
-    p_60 = sum(x >= obs_60 for x in within_60) / PERMUTATIONS
+    p_abs = sum(x <= obs_mean_abs for x in abs_means) / n_perm
+    p_30 = sum(x >= obs_30 for x in within_30) / n_perm
+    p_60 = sum(x >= obs_60 for x in within_60) / n_perm
     p_dir = binomial_right_tail(pos, n, 0.5)
 
     return EventsV2Stats(
@@ -227,18 +229,26 @@ def _window_effect(trigger_days: List[date], outcome_counts: Dict[date, float], 
     return mean(vals)
 
 
-def _perm_pvalue(all_days: List[date], trigger_n: int, series: Dict[date, float], w: int, obs_effect: float) -> float:
+def _perm_pvalue(
+    all_days: List[date],
+    trigger_n: int,
+    series: Dict[date, float],
+    w: int,
+    obs_effect: float,
+    permutations: int = PERMUTATIONS,
+) -> float:
     if trigger_n <= 0 or trigger_n > len(all_days):
         return 1.0
     rng = make_rng(SEED)
     null = []
-    for _ in range(PERMUTATIONS):
+    n_perm = max(200, int(permutations))
+    for _ in range(n_perm):
         sampled = rng.sample(all_days, trigger_n)
         null.append(_window_effect(sampled, series, w))
     return sum(x >= obs_effect for x in null) / len(null) if null else 1.0
 
 
-def analyze_scraped(scraped_path: Path) -> ScrapedStats:
+def analyze_scraped(scraped_path: Path, permutations: int = PERMUTATIONS) -> ScrapedStats:
     with scraped_path.open("r", encoding="utf-8") as f:  # type: ignore
         payload = json.load(f)  # type: ignore
 
@@ -304,7 +314,14 @@ def analyze_scraped(scraped_path: Path) -> ScrapedStats:
     for w in WINDOWS:
         obs = _window_effect(crisis_days, ufo_counts, w)  # type: ignore
         rev = _window_effect(ufo_days, crisis_counts, w)  # type: ignore
-        p_val = _perm_pvalue(all_days, len(crisis_days), ufo_counts, w, obs)  # type: ignore
+        p_val = _perm_pvalue(  # type: ignore
+            all_days,
+            len(crisis_days),
+            ufo_counts,
+            w,
+            obs,
+            permutations=permutations,
+        )
         window_results[w] = {  # type: ignore
             "obs_effect_post_minus_pre": obs,
             "reverse_effect": rev,
@@ -463,6 +480,7 @@ def analyze_panel(  # type: ignore
     min_days: int = 180,
     min_shocks: int = 12,
     min_observed_ratio: float = 0.8,
+    permutations: int = PERMUTATIONS,
 ) -> PanelStats:
     panel = load_panel(panel_path)  # type: ignore
     policy, rows = _select_panel_rows(panel, prefer_policy)  # type: ignore
@@ -584,8 +602,22 @@ def analyze_panel(  # type: ignore
         obs_raw = _window_effect(shock_days, ufo_series, w)
         reverse_raw = _window_effect(ufo_shock_days, crisis_series, w)
         placebo_control = _window_effect(shock_days, control_series, w)
-        p_adj = _perm_pvalue(all_days, len(shock_days), adjusted_ufo_series, w, obs_adj)
-        p_raw = _perm_pvalue(all_days, len(shock_days), ufo_series, w, obs_raw)
+        p_adj = _perm_pvalue(
+            all_days,
+            len(shock_days),
+            adjusted_ufo_series,
+            w,
+            obs_adj,
+            permutations=permutations,
+        )
+        p_raw = _perm_pvalue(
+            all_days,
+            len(shock_days),
+            ufo_series,
+            w,
+            obs_raw,
+            permutations=permutations,
+        )
         results[w] = {  # type: ignore
             "obs_effect_adjusted": obs_adj,
             "obs_effect_raw": obs_raw,
@@ -791,6 +823,8 @@ def write_causal_report(
     scraped_stats: ScrapedStats,
     panel_stats: PanelStats,
     approval: ApprovalResult,
+    permutations: int,
+    fast_mode: bool,
 ) -> None:
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
@@ -844,6 +878,10 @@ def write_causal_report(
             "best_corr": panel_stats.best_corr,
             "window_results": panel_stats.window_results,
         },
+        "runtime": {
+            "permutations": int(permutations),
+            "fast_mode": bool(fast_mode),
+        },
         "notes": notes,
     }
     with report_path.open("w", encoding="utf-8") as f:  # type: ignore
@@ -885,11 +923,25 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="若严格审批未通过，则以非零状态码退出（用于CI/自动化闸门）",
     )
+    parser.add_argument(
+        "--permutations",
+        type=int,
+        default=PERMUTATIONS,
+        help=f"置换次数（默认 {PERMUTATIONS}）",
+    )
+    parser.add_argument(
+        "--fast-mode",
+        action="store_true",
+        help=f"快速模式：自动把置换次数上限限制到 {FAST_MODE_PERMUTATIONS}",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    permutations = max(200, int(args.permutations))
+    if args.fast_mode:
+        permutations = min(permutations, FAST_MODE_PERMUTATIONS)
 
     if not SCRAPED_FILE.exists():  # type: ignore
         print(f"[错误] 找不到 {SCRAPED_FILE}，请先运行 scraper.py")  # type: ignore
@@ -906,14 +958,15 @@ def main() -> None:
         action = "新增" if inserted else "更新"
         print(f"[面板] {action} 快照: date={snapshot['date']} policy={snapshot['policy']} -> {PANEL_FILE}")  # type: ignore
 
-    events_stats = analyze_events_v2(EVENTS_FILE)
-    scraped_stats = analyze_scraped(SCRAPED_FILE)
+    events_stats = analyze_events_v2(EVENTS_FILE, permutations=permutations)
+    scraped_stats = analyze_scraped(SCRAPED_FILE, permutations=permutations)
     panel_stats = analyze_panel(  # type: ignore
         PANEL_FILE,
         prefer_policy=args.panel_policy,
         min_days=args.min_panel_days,
         min_shocks=args.min_panel_shocks,
         min_observed_ratio=args.min_panel_observed_ratio,
+        permutations=permutations,
     )
     verdict, notes = summarize_causal_verdict(events_stats, scraped_stats, panel_stats)
     approval = run_strict_approval(
@@ -930,9 +983,12 @@ def main() -> None:
         scraped_stats=scraped_stats,
         panel_stats=panel_stats,
         approval=approval,
+        permutations=permutations,
+        fast_mode=bool(args.fast_mode),
     )
 
     print("\n=== 因果检验报告（升级版）===")
+    print(f"置换次数: {permutations} (fast_mode={bool(args.fast_mode)})")  # type: ignore
     print(f"结论: {verdict}")  # type: ignore
     print(f"严格审批: {approval.status} ({approval.level}) - {approval.reason}")  # type: ignore
 
