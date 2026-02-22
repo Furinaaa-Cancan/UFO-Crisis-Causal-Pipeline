@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 import json
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -230,6 +231,89 @@ class TestStrictLogic(unittest.TestCase):
             ],
         )
 
+    def test_collect_paged_source_urls_builds_expected_range(self):
+        src = {
+            "paged_url_template": "https://x.example/feed/?paged={page}",
+            "paged_start": 2,
+            "paged_end": 4,
+        }
+        self.assertEqual(
+            scraper.collect_paged_source_urls(src),
+            [
+                "https://x.example/feed/?paged=2",
+                "https://x.example/feed/?paged=3",
+                "https://x.example/feed/?paged=4",
+            ],
+        )
+
+    def test_collect_source_urls_for_retry_can_include_paged_urls(self):
+        src = {
+            "url": "https://a.example/rss",
+            "fallback_url": "https://b.example/rss",
+            "paged_url_template": "https://a.example/rss?paged={page}",
+            "paged_start": 1,
+            "paged_end": 2,
+        }
+        urls = scraper.collect_source_urls_for_retry(src, include_paged=True)
+        self.assertEqual(
+            urls,
+            [
+                "https://a.example/rss",
+                "https://b.example/rss",
+                "https://a.example/rss?paged=1",
+                "https://a.example/rss?paged=2",
+            ],
+        )
+
+    def test_fetch_rss_merges_paged_urls_and_stops_after_repeated_no_new_pages(self):
+        source = {
+            "name": "Test Feed",
+            "category": "ufo",
+            "type": "rss",
+            "url": "https://x.example/feed/?paged=1",
+            "paged_url_template": "https://x.example/feed/?paged={page}",
+            "paged_start": 1,
+            "paged_end": 5,
+        }
+
+        def item(url, title, date):
+            return {
+                "source": source["name"],
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 2,
+                "title": title,
+                "date": date,
+                "published_at": f"{date}T00:00:00+00:00",
+                "url": url,
+                "domain": "x.example",
+                "description": "",
+            }
+
+        page_payload = {
+            "https://x.example/feed/?paged=1": ([item("https://x.example/a", "A", "2026-01-05")], None),
+            "https://x.example/feed/?paged=2": ([item("https://x.example/b", "B", "2026-01-04")], None),
+            "https://x.example/feed/?paged=3": ([item("https://x.example/b", "B", "2026-01-04")], None),
+            "https://x.example/feed/?paged=4": ([item("https://x.example/b", "B", "2026-01-04")], None),
+            "https://x.example/feed/?paged=5": ([item("https://x.example/c", "C", "2026-01-03")], None),
+        }
+
+        def fake_fetch_rss_url(url, src, max_items):
+            self.assertEqual(src["name"], source["name"])
+            return page_payload[url]
+
+        with mock.patch.object(scraper, "fetch_rss_url", side_effect=fake_fetch_rss_url):
+            out = scraper.fetch_rss(source, max_items_per_source=10)
+
+        self.assertIsNone(out["error"])
+        self.assertEqual(len(out["items"]), 2)
+        self.assertEqual(out["attempted_urls"], [
+            "https://x.example/feed/?paged=1",
+            "https://x.example/feed/?paged=2",
+            "https://x.example/feed/?paged=3",
+            "https://x.example/feed/?paged=4",
+        ])
+
     def test_extract_date_from_url_fallback(self):
         self.assertEqual(
             scraper.extract_date_from_url("https://whitehouse.gov/briefings-statements/2026/02/21/example"),
@@ -349,6 +433,46 @@ class TestStrictLogic(unittest.TestCase):
         self.assertGreaterEqual(summary.get("media_items_considered", 0), 1)
         self.assertGreaterEqual(summary.get("strict_pairs", 0), 1)
         self.assertGreaterEqual(summary.get("strict_positive_lag_pairs", 0), 1)
+
+    def test_build_official_media_pairs_keeps_google_proxy_separate_from_strict(self):
+        items = [
+            {
+                "category": "ufo",
+                "source": "Pentagon / DoD 新闻稿",
+                "source_type": "rss",
+                "weight": 3,
+                "title": "Department of Defense Releases Annual UAP Report",
+                "description": "Official UAP annual assessment release",
+                "date": "2024-11-14",
+                "published_at": "2024-11-14T12:00:00+00:00",
+                "url": "https://www.defense.gov/a",
+                "domain": "defense.gov",
+                "authenticity": {"final_score": 88},
+            },
+            {
+                "category": "ufo",
+                "source": "Google News - UAP政府披露（补充）",
+                "source_type": "rss",
+                "weight": 1,
+                "title": "DoD annual UAP report sparks congressional scrutiny - DefenseScoop",
+                "description": "Defense reporting on official UAP report",
+                "date": "2024-11-15",
+                "published_at": "2024-11-15T06:00:00+00:00",
+                "url": "https://news.google.com/rss/articles/abc",
+                "domain": "news.google.com",
+                "publisher_name": "DefenseScoop",
+                "publisher_url": "https://defensescoop.com",
+                "publisher_domain": "defensescoop.com",
+                "authenticity": {"final_score": 62, "is_aggregator": True},
+            },
+        ]
+        pairs = scraper.build_official_media_pairs(items, max_lag_days=10, min_semantic_score=2, min_base_score=55)
+        summary = pairs.get("summary", {})
+        self.assertEqual(summary.get("strict_pairs", 0), 0)
+        self.assertGreaterEqual(summary.get("proxy_strict_pairs", 0), 1)
+        self.assertGreaterEqual(summary.get("pairs_with_resolved_publisher", 0), 1)
+        self.assertEqual(pairs["pairs"][0]["evidence_tier"], "proxy_strict")
+        self.assertTrue(pairs["pairs"][0]["media_is_aggregator_proxy"])
 
     def test_base_authenticity_prefers_official_items_with_parseable_timestamp(self):
         today = datetime.now(timezone.utc).date().isoformat()

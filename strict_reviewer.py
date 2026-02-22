@@ -148,10 +148,13 @@ def summarize_mechanism_signals(
     pair_summary = (official_media_pairs or {}).get("summary", {}) if isinstance(official_media_pairs, dict) else {}
     pair_total = int(pair_summary.get("total_pairs", 0) or 0)
     pair_strict = int(pair_summary.get("strict_pairs", 0) or 0)
+    pair_proxy_strict = int(pair_summary.get("proxy_strict_pairs", 0) or 0)
     pair_balanced = int(pair_summary.get("balanced_pairs", 0) or 0)
     pair_nonnegative = int(pair_summary.get("strict_nonnegative_lag_pairs", 0) or 0)
     pair_positive = int(pair_summary.get("strict_positive_lag_pairs", 0) or 0)
+    pair_proxy_positive = int(pair_summary.get("proxy_strict_positive_lag_pairs", 0) or 0)
     pair_lag_observed = int(pair_summary.get("strict_with_timestamp_pairs", 0) or 0)
+    pair_publisher_resolved = int(pair_summary.get("pairs_with_resolved_publisher", 0) or 0)
     pair_official_with_followup = int(pair_summary.get("official_events_with_strict_followup", 0) or 0)
     pair_lead_events = pair_positive if pair_positive > 0 else pair_nonnegative
 
@@ -192,10 +195,13 @@ def summarize_mechanism_signals(
             "official_primary_share": round(official_primary_share, 6),  # type: ignore
             "pair_total": pair_total,
             "pair_strict": pair_strict,
+            "pair_proxy_strict": pair_proxy_strict,
             "pair_balanced": pair_balanced,
             "pair_strict_nonnegative_lag_events": pair_nonnegative,
             "pair_strict_positive_lag_events": pair_positive,
+            "pair_proxy_strict_positive_lag_events": pair_proxy_positive,
             "pair_lag_observed_events": pair_lag_observed,
+            "pair_resolved_publisher_events": pair_publisher_resolved,
             "pair_official_events_with_strict_followup": pair_official_with_followup,
             "historical_ufo_events_total": hist_total,
             "historical_government_action_events": hist_official,
@@ -643,7 +649,10 @@ def main() -> None:
             "official_media_pairs: "
             f"total={pair_summary.get('total_pairs')}, "
             f"strict={pair_summary.get('strict_pairs')}, "
+            f"proxy_strict={pair_summary.get('proxy_strict_pairs')}, "
             f"strict_positive={pair_summary.get('strict_positive_lag_pairs')}, "
+            f"proxy_strict_positive={pair_summary.get('proxy_strict_positive_lag_pairs')}, "
+            f"publisher_resolved={pair_summary.get('pairs_with_resolved_publisher')}, "
             f"official_items={pair_summary.get('official_items_considered')}, "
             f"media_items={pair_summary.get('media_items_considered')}"
         )

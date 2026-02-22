@@ -45,6 +45,8 @@ LENIENT_MIN_SCORE = 45
 BALANCED_MIN_SCORE = 58
 MAX_WORKERS_DEFAULT = 6
 MAX_ITEMS_PER_SOURCE = 30
+PAGED_MAX_PAGES_PER_SOURCE = 120
+PAGED_STOP_AFTER_NO_NEW_PAGES = 2
 
 POLICY_STRICT = "strict"
 POLICY_STRICT_BALANCED = "strict-balanced"
@@ -761,6 +763,7 @@ def fetch_rss_url(url, source, max_items_per_source):
                 or entry.find("summary")  # type: ignore
                 or entry.find("content")  # type: ignore
             )
+            source_tag = entry.find("source")  # type: ignore
 
             title_text = normalize_text(title_tag.get_text(" ", strip=True) if title_tag else "")
             raw_date = normalize_text(date_tag.get_text(strip=True) if date_tag else "")
@@ -786,6 +789,16 @@ def fetch_rss_url(url, source, max_items_per_source):
                     parsed_ok = True
                     date_inferred_from_url = True
             domain = urlsplit(canonical_url).netloc.lower() if canonical_url else ""
+            if domain.startswith("www."):
+                domain = domain[4:]  # type: ignore
+
+            publisher_name = normalize_text(source_tag.get_text(" ", strip=True) if source_tag else "")
+            publisher_url = ""
+            if source_tag:
+                publisher_url = canonicalize_url(source_tag.get("url") or "")  # type: ignore
+            publisher_domain = urlsplit(publisher_url).netloc.lower() if publisher_url else ""
+            if publisher_domain.startswith("www."):
+                publisher_domain = publisher_domain[4:]  # type: ignore
 
             if not title_text:
                 continue
@@ -803,6 +816,9 @@ def fetch_rss_url(url, source, max_items_per_source):
                 "date_inferred_from_url": date_inferred_from_url,
                 "url": canonical_url,  # type: ignore
                 "domain": domain,
+                "publisher_name": publisher_name,
+                "publisher_url": publisher_url,
+                "publisher_domain": publisher_domain,
                 "description": desc_text[:500],  # type: ignore
             })
     except Exception as e:
@@ -811,7 +827,39 @@ def fetch_rss_url(url, source, max_items_per_source):
     return items, None
 
 
-def collect_source_urls_for_retry(source):
+def _safe_positive_int(value, default_value):
+    try:
+        num = int(value)  # type: ignore
+    except Exception:
+        return default_value
+    if num <= 0:
+        return default_value
+    return num
+
+
+def collect_paged_source_urls(source):
+    template = str(source.get("paged_url_template", "") or "").strip()  # type: ignore
+    if not template or "{page}" not in template:
+        return []
+
+    start = _safe_positive_int(source.get("paged_start", 1), 1)  # type: ignore
+    end = _safe_positive_int(source.get("paged_end", start), start)  # type: ignore
+    if end < start:
+        end = start
+
+    if (end - start + 1) > PAGED_MAX_PAGES_PER_SOURCE:
+        end = start + PAGED_MAX_PAGES_PER_SOURCE - 1
+
+    out = []
+    for page in range(start, end + 1):
+        try:
+            out.append(template.format(page=page))
+        except Exception:
+            continue
+    return out
+
+
+def collect_source_urls_for_retry(source, include_paged=False):
     urls = []
 
     primary = str(source.get("url", "") or "").strip()  # type: ignore
@@ -829,6 +877,9 @@ def collect_source_urls_for_retry(source):
             if u:
                 urls.append(u)
 
+    if include_paged:
+        urls.extend(collect_paged_source_urls(source))
+
     out = []
     seen = set()
     for u in urls:
@@ -840,7 +891,88 @@ def collect_source_urls_for_retry(source):
 
 
 def fetch_rss(source, max_items_per_source):
-    urls_to_try = collect_source_urls_for_retry(source)
+    paged_urls = collect_paged_source_urls(source)
+    if paged_urls:
+        # Paged feeds are merged page by page to build longer historical windows.
+        urls_to_try = []
+        urls_to_try.extend(paged_urls)
+        urls_to_try.extend(collect_source_urls_for_retry(source, include_paged=False))
+        dedup_urls = []
+        seen_urls = set()
+        for u in urls_to_try:
+            if u in seen_urls:
+                continue
+            seen_urls.add(u)  # type: ignore
+            dedup_urls.append(u)
+
+        if not dedup_urls:
+            return {
+                "items": None,
+                "error": "missing_source_url",
+                "fetched_url": "",
+                "attempted_urls": [],
+                "used_fallback": False,
+            }
+
+        merged_items = []
+        seen_item_urls = set()
+        seen_item_title_date = set()
+        attempted_urls = []
+        last_success_url = ""
+        last_error = None
+        no_new_pages = 0
+
+        for attempt_url in dedup_urls:
+            attempted_urls.append(attempt_url)
+            items, err = fetch_rss_url(attempt_url, source, max_items_per_source)
+            if items is None:
+                last_error = err
+                continue
+
+            last_success_url = attempt_url
+            new_count = 0
+            for item in items:
+                url_key = item.get("url")  # type: ignore
+                title_key = normalize_text(item.get("title", "")).lower()  # type: ignore
+                date_key = item.get("date", "")  # type: ignore
+                if url_key:
+                    if url_key in seen_item_urls:
+                        continue
+                    seen_item_urls.add(url_key)  # type: ignore
+                else:
+                    td_key = (title_key, date_key)
+                    if td_key in seen_item_title_date:
+                        continue
+                    seen_item_title_date.add(td_key)  # type: ignore
+                merged_items.append(item)
+                new_count += 1
+
+            if new_count == 0:
+                no_new_pages += 1
+            else:
+                no_new_pages = 0
+
+            if no_new_pages >= PAGED_STOP_AFTER_NO_NEW_PAGES:
+                break
+
+        if not merged_items:
+            return {
+                "items": None,
+                "error": last_error or "rss paged fetch failed",
+                "fetched_url": dedup_urls[-1],  # type: ignore
+                "attempted_urls": attempted_urls,
+                "used_fallback": False,
+            }
+
+        return {
+            "items": merged_items,
+            "error": None,
+            "fetched_url": last_success_url or dedup_urls[0],  # type: ignore
+            "attempted_urls": attempted_urls,
+            "used_fallback": False,
+        }
+
+    urls_to_try = collect_source_urls_for_retry(source, include_paged=False)
     if not urls_to_try:
         return {
             "items": None,
@@ -1924,9 +2056,16 @@ def classify_official_media_pair_tier(media_row, semantic_score):
     source_type = media_row.get("source_type", "")  # type: ignore
     weight = int(media_row.get("weight", 1) or 1)  # type: ignore
     is_aggregator = bool(media_row.get("is_aggregator", False))  # type: ignore
+    is_aggregator_proxy = bool(media_row.get("is_aggregator_proxy", False))  # type: ignore
+    has_publisher = bool(media_row.get("publisher_domain") or media_row.get("publisher_name"))  # type: ignore
+    has_timestamp = media_row.get("published_dt") is not None  # type: ignore
     if source_type == "rss" and weight >= 2 and not is_aggregator and semantic_score >= 3:
         return "strict"
+    if source_type == "rss" and is_aggregator_proxy and has_publisher and has_timestamp and semantic_score >= 3:
+        return "proxy_strict"
     if source_type == "rss" and not is_aggregator and semantic_score >= 2:
+        return "balanced"
+    if source_type == "rss" and is_aggregator_proxy and has_publisher and semantic_score >= 2:
         return "balanced"
     return "exploratory"
 
@@ -1953,18 +2092,31 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
         source = str(item.get("source", "") or "")
         is_official = source_is_official(source)
         is_aggregator = source_is_aggregator(source) or bool(auth.get("is_aggregator", False))  # type: ignore
+        publisher_name = str(item.get("publisher_name", "") or "")
+        publisher_url = str(item.get("publisher_url", "") or "")
+        publisher_domain = str(item.get("publisher_domain", "") or "")
+        publisher_is_aggregator = source_is_aggregator(publisher_name) or source_is_aggregator(publisher_domain)
+        is_aggregator_proxy = bool(is_aggregator and (publisher_name or publisher_domain) and not publisher_is_aggregator)
+        effective_source = publisher_name if is_aggregator_proxy and publisher_name else source
+        effective_domain = publisher_domain if is_aggregator_proxy and publisher_domain else str(item.get("domain", "") or "")
         row = {
             "source": source,
+            "effective_source": effective_source,
             "source_type": str(item.get("source_type", "") or ""),
             "weight": int(item.get("weight", 1) or 1),
             "is_aggregator": is_aggregator,
+            "is_aggregator_proxy": is_aggregator_proxy,
             "date": d,
             "date_iso": d.isoformat(),  # type: ignore
             "published_at": str(item.get("published_at", "") or ""),
             "published_dt": parse_iso_datetime(item.get("published_at")),  # type: ignore
             "title": profile.get("title", ""),
             "url": str(item.get("url", "") or ""),
-            "domain": str(item.get("domain", "") or ""),
+            "domain": effective_domain,
+            "raw_domain": str(item.get("domain", "") or ""),
+            "publisher_name": publisher_name,
+            "publisher_url": publisher_url,
+            "publisher_domain": publisher_domain,
             "score": round(base_score, 3),  # type: ignore
             "profile": profile,
             "event_key": (
@@ -2013,7 +2165,11 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
                 "official_action_tag": off.get("profile", {}).get("action"),  # type: ignore
                 "official_topic_tag": off.get("profile", {}).get("topic"),  # type: ignore
                 "official_actor_tag": off.get("profile", {}).get("actor"),  # type: ignore
-                "media_source": med.get("source"),
+                "media_source": med.get("effective_source") or med.get("source"),
+                "media_origin_source": med.get("source"),
+                "media_publisher": med.get("publisher_name"),
+                "media_publisher_url": med.get("publisher_url"),
+                "media_publisher_domain": med.get("publisher_domain"),
                 "media_title": med.get("title"),
                 "media_date": med.get("date_iso"),
                 "media_published_at": med.get("published_at"),
@@ -2023,6 +2179,7 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
                 "media_weight": med.get("weight"),
                 "media_source_type": med.get("source_type"),
                 "media_is_aggregator": bool(med.get("is_aggregator", False)),
+                "media_is_aggregator_proxy": bool(med.get("is_aggregator_proxy", False)),
                 "lag_days": int(lag_days),
                 "lag_hours": lag_hours,
                 "lead_nonnegative": lead_nonnegative,
@@ -2039,7 +2196,7 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
 
     pair_candidates.sort(
         key=lambda x: (
-            0 if x.get("evidence_tier") == "strict" else (1 if x.get("evidence_tier") == "balanced" else 2),  # type: ignore
+            0 if x.get("evidence_tier") == "strict" else (1 if x.get("evidence_tier") == "proxy_strict" else (2 if x.get("evidence_tier") == "balanced" else 3)),  # type: ignore
             0 if x.get("lead_strict_positive") else 1,  # type: ignore
             -int(x.get("semantic_score", 0) or 0),  # type: ignore
             int(x.get("lag_days", 9999) or 9999),  # type: ignore
@@ -2055,13 +2212,13 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
             best_by_media[media_key] = row
             continue
         prev_key = (
-            0 if prev.get("evidence_tier") == "strict" else (1 if prev.get("evidence_tier") == "balanced" else 2),
+            0 if prev.get("evidence_tier") == "strict" else (1 if prev.get("evidence_tier") == "proxy_strict" else (2 if prev.get("evidence_tier") == "balanced" else 3)),
             0 if prev.get("lead_strict_positive") else 1,
             -int(prev.get("semantic_score", 0) or 0),
             int(prev.get("lag_days", 9999) or 9999),
         )
         curr_key = (
-            0 if row.get("evidence_tier") == "strict" else (1 if row.get("evidence_tier") == "balanced" else 2),
+            0 if row.get("evidence_tier") == "strict" else (1 if row.get("evidence_tier") == "proxy_strict" else (2 if row.get("evidence_tier") == "balanced" else 3)),
             0 if row.get("lead_strict_positive") else 1,
             -int(row.get("semantic_score", 0) or 0),
             int(row.get("lag_days", 9999) or 9999),
@@ -2072,7 +2229,7 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
     pairs = list(best_by_media.values())
     pairs.sort(
         key=lambda x: (
-            0 if x.get("evidence_tier") == "strict" else (1 if x.get("evidence_tier") == "balanced" else 2),  # type: ignore
+            0 if x.get("evidence_tier") == "strict" else (1 if x.get("evidence_tier") == "proxy_strict" else (2 if x.get("evidence_tier") == "balanced" else 3)),  # type: ignore
             0 if x.get("lead_strict_positive") else 1,  # type: ignore
             int(x.get("lag_days", 9999) or 9999),  # type: ignore
             x.get("media_date", "") or "",  # type: ignore
@@ -2080,12 +2237,15 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
     )
 
     strict_pairs = [p for p in pairs if p.get("evidence_tier") == "strict"]  # type: ignore
+    proxy_strict_pairs = [p for p in pairs if p.get("evidence_tier") == "proxy_strict"]  # type: ignore
     balanced_pairs = [p for p in pairs if p.get("evidence_tier") == "balanced"]  # type: ignore
     exploratory_pairs = [p for p in pairs if p.get("evidence_tier") == "exploratory"]  # type: ignore
     strict_nonnegative = [p for p in strict_pairs if bool(p.get("lead_nonnegative"))]  # type: ignore
     strict_positive = [p for p in strict_pairs if bool(p.get("lead_strict_positive"))]  # type: ignore
     strict_ts = [p for p in strict_pairs if isinstance(p.get("lag_hours"), (int, float))]
+    proxy_positive = [p for p in proxy_strict_pairs if bool(p.get("lead_strict_positive"))]  # type: ignore
     official_with_strict_followup = sorted({p.get("official_event_key") for p in strict_pairs if p.get("official_event_key")})  # type: ignore
+    publisher_resolved_pairs = [p for p in pairs if p.get("media_publisher_domain") or p.get("media_publisher")]  # type: ignore
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
@@ -2098,11 +2258,14 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
             "min_base_score": int(min_base_score),
             "total_pairs": len(pairs),
             "strict_pairs": len(strict_pairs),
+            "proxy_strict_pairs": len(proxy_strict_pairs),
             "balanced_pairs": len(balanced_pairs),
             "exploratory_pairs": len(exploratory_pairs),
             "strict_nonnegative_lag_pairs": len(strict_nonnegative),
             "strict_positive_lag_pairs": len(strict_positive),
             "strict_with_timestamp_pairs": len(strict_ts),
+            "proxy_strict_positive_lag_pairs": len(proxy_positive),
+            "pairs_with_resolved_publisher": len(publisher_resolved_pairs),
             "official_events_with_strict_followup": len(official_with_strict_followup),
             "top_blockers": [
                 {"reason": reason, "count": count}

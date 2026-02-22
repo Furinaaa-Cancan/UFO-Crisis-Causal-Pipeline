@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "新闻来源配置文件 — 多类型、多机构综合覆盖",
-    "last_updated": "2026-02-22-rev6-official-depth-max500",
+    "last_updated": "2026-02-22-rev7-official-paged-window",
     "feed_types": [
       "rss",
       "reddit_json"
@@ -178,8 +178,11 @@
       "type": "rss",
       "category": "crisis",
       "weight": 3,
-      "note": "白宫官方声明/新闻稿（含 briefing/presidential action fallback）",
+      "note": "白宫官方声明/新闻稿（启用 paged 历史窗口，优先保留可解析发布时间）",
       "active": true,
+      "paged_url_template": "https://www.whitehouse.gov/news/feed/?paged={page}",
+      "paged_start": 1,
+      "paged_end": 12,
       "fallback_urls": [
         "https://www.whitehouse.gov/briefings-statements/feed/",
         "https://www.whitehouse.gov/presidential-actions/feed/"
@@ -339,21 +342,15 @@
       "type": "rss",
       "category": "crisis",
       "weight": 3,
-      "note": "白宫 Briefings/Statements 官方 feed",
+      "note": "白宫 Briefings/Statements 官方 feed（分页扩展历史样本）",
       "active": true,
+      "paged_url_template": "https://www.whitehouse.gov/briefings-statements/feed/?paged={page}",
+      "paged_start": 1,
+      "paged_end": 20,
       "fallback_urls": [
         "https://www.whitehouse.gov/news/feed/",
         "https://www.whitehouse.gov/presidential-actions/feed/"
       ]
-    },
-    {
-      "name": "White House Briefings & Statements（官方扩展-历史页2）",
-      "url": "https://www.whitehouse.gov/briefings-statements/feed/?paged=2",
-      "type": "rss",
-      "category": "crisis",
-      "weight": 3,
-      "note": "白宫 Briefings/Statements 历史分页（补历史样本深度）",
-      "active": true
     },
     {
       "name": "White House Presidential Actions（官方扩展）",
@@ -361,20 +358,14 @@
       "type": "rss",
       "category": "crisis",
       "weight": 3,
-      "note": "白宫 Presidential Actions 官方 feed",
+      "note": "白宫 Presidential Actions 官方 feed（分页扩展历史样本）",
       "active": true,
+      "paged_url_template": "https://www.whitehouse.gov/presidential-actions/feed/?paged={page}",
+      "paged_start": 1,
+      "paged_end": 20,
       "fallback_urls": [
         "https://www.whitehouse.gov/news/feed/"
       ]
-    },
-    {
-      "name": "White House Presidential Actions（官方扩展-历史页2）",
-      "url": "https://www.whitehouse.gov/presidential-actions/feed/?paged=2",
-      "type": "rss",
-      "category": "crisis",
-      "weight": 3,
-      "note": "白宫 Presidential Actions 历史分页（补历史样本深度）",
-      "active": true
     },
     {
       "name": "House Oversight Committee（官方扩展）",
@@ -382,56 +373,38 @@
       "type": "rss",
       "category": "crisis",
       "weight": 3,
-      "note": "美国众议院监督委员会官方 feed",
-      "active": true
-    },
-    {
-      "name": "House Oversight Committee（官方扩展-历史页2）",
-      "url": "https://oversight.house.gov/feed/?paged=2",
-      "type": "rss",
-      "category": "crisis",
-      "weight": 3,
-      "note": "美国众议院监督委员会历史分页（补历史样本深度）",
-      "active": true
+      "note": "美国众议院监督委员会官方 feed（分页扩展至更早历史）",
+      "active": true,
+      "paged_url_template": "https://oversight.house.gov/feed/?paged={page}",
+      "paged_start": 1,
+      "paged_end": 12
     },
     {
       "name": "House Intelligence Committee（官方扩展）",
-      "url": "https://intelligence.house.gov/feed/",
+      "url": "https://intelligence.house.gov/feed/?paged=1",
       "type": "rss",
       "category": "ufo",
       "weight": 3,
-      "note": "美国众议院情报委员会官方 feed（覆盖 UAP 听证线索）",
-      "active": true
-    },
-    {
-      "name": "House Intelligence Committee（官方扩展-历史页2）",
-      "url": "https://intelligence.house.gov/feed/?paged=2",
-      "type": "rss",
-      "category": "ufo",
-      "weight": 3,
-      "note": "美国众议院情报委员会历史分页（补历史样本深度）",
-      "active": true
+      "note": "美国众议院情报委员会分页入口（与主 feed 互补）",
+      "active": true,
+      "paged_url_template": "https://intelligence.house.gov/feed/?paged={page}",
+      "paged_start": 1,
+      "paged_end": 24
     },
     {
       "name": "Senate Intelligence Press Releases（官方扩展）",
-      "url": "https://www.intelligence.senate.gov/press-releases/feed",
+      "url": "https://www.intelligence.senate.gov/feed/?paged=1",
       "type": "rss",
       "category": "ufo",
       "weight": 3,
-      "note": "美国参议院情报委员会新闻稿 feed",
+      "note": "美国参议院情报委员会分页 feed（补历史样本深度）",
       "active": true,
+      "paged_url_template": "https://www.intelligence.senate.gov/feed/?paged={page}",
+      "paged_start": 1,
+      "paged_end": 24,
       "fallback_urls": [
         "https://www.intelligence.senate.gov/feed/"
       ]
-    },
-    {
-      "name": "Senate Intelligence Press Releases（官方扩展-历史页2）",
-      "url": "https://www.intelligence.senate.gov/feed/?paged=2",
-      "type": "rss",
-      "category": "ufo",
-      "weight": 3,
-      "note": "美国参议院情报委员会历史分页（补历史样本深度）",
-      "active": true
     },
     {
       "name": "Senate HSGAC News（官方扩展）",
@@ -439,8 +412,8 @@
       "type": "rss",
       "category": "crisis",
       "weight": 3,
-      "note": "美国参议院国土安全与政府事务委员会官方 feed",
-      "active": true
+      "note": "美国参议院国土安全与政府事务委员会官方 feed（当前长期空结果，先停用）",
+      "active": false
     }
   ]
 }
