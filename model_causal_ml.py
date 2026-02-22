@@ -59,6 +59,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-shock-days", type=int, default=MIN_SHOCK_DAYS)
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--permutations", type=int, default=PERMUTATIONS)
+    p.add_argument(
+        "--effect-lag-start",
+        type=int,
+        default=1,
+        help="处理发生后，结果窗口起始滞后天数（默认 t+1）",
+    )
+    p.add_argument(
+        "--effect-window-days",
+        type=int,
+        default=7,
+        help="处理发生后，结果窗口结束滞后天数（默认 t+7）",
+    )
     return p.parse_args()
 
 
@@ -73,13 +85,20 @@ def _safe_float(v, default=0.0) -> float:
         return default
 
 
-def build_dataset(rows: List[dict], crisis_threshold: float) -> tuple[List[dict], List[str]]:
+def build_dataset(
+    rows: List[dict],
+    crisis_threshold: float,
+    effect_lag_start: int = 1,
+    effect_window_days: int = 7,
+) -> tuple[List[dict], List[str]]:
     """
     构建样本：
-    - outcome: 当日 ufo_count
+    - outcome: 冲击日之后窗口内的 UFO 强度（默认 t+1..t+7 平均）
     - treatment: 当日 crisis_count 是否达到冲击阈值
     - covariates: 自回归滞后 + 控制变量 + 日历特征
     """
+    lag_start = max(0, int(effect_lag_start))
+    lag_end = max(lag_start, int(effect_window_days))
     by_date: Dict[date, dict] = {}  # type: ignore
     for r in rows:
         try:
@@ -131,7 +150,12 @@ def build_dataset(rows: List[dict], crisis_threshold: float) -> tuple[List[dict]
         x.append(math.sin(2.0 * math.pi * month / 12.0))
         x.append(math.cos(2.0 * math.pi * month / 12.0))
 
-        y = _safe_float(cur.get("ufo_count", 0))
+        future_dates = [d + timedelta(days=k) for k in range(lag_start, lag_end + 1)]  # type: ignore
+        if any(fd not in by_date for fd in future_dates):
+            continue
+
+        future_ufo = [_safe_float(by_date[fd].get("ufo_count", 0)) for fd in future_dates]  # type: ignore
+        y = mean(future_ufo) if future_ufo else 0.0
         crisis = _safe_float(cur.get("crisis_count", 0))
         t = 1 if crisis >= crisis_threshold else 0
 
@@ -459,6 +483,8 @@ def main() -> None:
             "shock_threshold": None,
             "shock_days": 0,
             "treated_ratio": None,
+            "effect_lag_start": int(args.effect_lag_start),
+            "effect_window_days": int(args.effect_window_days),
             "n_features": 0,
             "feature_names": [],
         },
@@ -474,6 +500,7 @@ def main() -> None:
             "cate_mean": None,
             "cate_std_proxy": None,
             "heterogeneity": {},
+            "estimand": "",
         },
         "gates": {
             "ate_positive": False,
@@ -490,7 +517,12 @@ def main() -> None:
     else:
         crisis_nonzero = [_safe_float(r.get("crisis_count", 0)) for r in rows if _safe_float(r.get("crisis_count", 0)) > 0]  # type: ignore
         threshold = compute_shock_threshold(crisis_nonzero)
-        data, feature_names = build_dataset(rows, threshold)
+        data, feature_names = build_dataset(
+            rows,
+            threshold,
+            effect_lag_start=args.effect_lag_start,
+            effect_window_days=args.effect_window_days,
+        )
         shock_days = sum(1 for r in data if int(r["t"]) == 1)
 
         out["sample"]["shock_threshold"] = round(threshold, 6)  # type: ignore
@@ -510,6 +542,9 @@ def main() -> None:
             m_hat, e_hat, nuisance_method = estimate_nuisance(data, args.folds)
             ate, y_res, t_res, den = orthogonal_ate(ys, ts, m_hat, e_hat)
             out["estimation"]["nuisance_method"] = nuisance_method  # type: ignore
+            out["estimation"]["estimand"] = (
+                f"E[ufo_count_(t+{int(args.effect_lag_start)}..t+{int(args.effect_window_days)}) | do(shock_t=1)]"
+            )  # type: ignore
 
             if den <= 1e-9:
                 out["status"] = "blocked"  # type: ignore
