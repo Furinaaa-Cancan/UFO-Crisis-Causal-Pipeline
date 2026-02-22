@@ -502,6 +502,12 @@ class TestStrictLogic(unittest.TestCase):
             payload = json.loads(history_path.read_text(encoding="utf-8"))
             self.assertEqual([x["run_id"] for x in payload["runs"]], ["r1", "r2"])
 
+    def test_historical_backfill_query_subset_parser(self):
+        q = historical_backfill.parse_selected_queries("ufo, crisis")
+        self.assertEqual(q, ["ufo", "crisis"])
+        with self.assertRaises(ValueError):
+            historical_backfill.parse_selected_queries("ufo,unknown_query")
+
 
 if __name__ == "__main__":
     unittest.main()

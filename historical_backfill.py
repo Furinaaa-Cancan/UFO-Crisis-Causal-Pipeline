@@ -44,6 +44,14 @@ CTRL_ECONOMY_QUERY = '(economy OR inflation OR tariff OR recession OR gdp) sourc
 CTRL_SECURITY_QUERY = '(war OR iran OR russia OR china OR missile OR defense) sourcecountry:us sourcelang:english'
 CTRL_IMMIGRATION_QUERY = '(immigration OR border OR migrant OR asylum OR deportation) sourcecountry:us sourcelang:english'
 
+QUERY_MAP = {
+    "ufo": UFO_QUERY,
+    "crisis": CRISIS_QUERY,
+    "control_economy": CTRL_ECONOMY_QUERY,
+    "control_security": CTRL_SECURITY_QUERY,
+    "control_immigration": CTRL_IMMIGRATION_QUERY,
+}
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="历史面板回填（GDELT Timeline）")
@@ -57,7 +65,22 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--pause-between-chunks", type=float, default=PAUSE_BETWEEN_CHUNKS, help="分段请求间隔秒数")
     p.add_argument("--allow-partial", action="store_true", help="分段失败时跳过该段继续（推荐）")
     p.add_argument("--skip-zero-days", action="store_true", help="跳过全零天（默认保留）")
+    p.add_argument(
+        "--queries",
+        default="ufo,crisis,control_economy,control_security,control_immigration",
+        help="本次抓取的查询集合（逗号分隔）。例如：ufo,crisis",
+    )
     return p.parse_args()
+
+
+def parse_selected_queries(raw: str) -> List[str]:
+    selected_queries = [x.strip() for x in str(raw).split(",") if x.strip()]
+    invalid = [x for x in selected_queries if x not in QUERY_MAP]
+    if invalid:
+        raise ValueError(f"未知 queries: {invalid}；可选={sorted(QUERY_MAP.keys())}")
+    if not selected_queries:
+        raise ValueError("queries 不能为空")
+    return selected_queries
 
 
 def _to_gdelt_dt(d: date, end_of_day: bool = False) -> str:
@@ -222,64 +245,34 @@ def main() -> None:
     if start > end:
         raise SystemExit("start-date 不能晚于 end-date")
 
-    print(f"[backfill] fetch ufo timeline: {start.isoformat()} -> {end.isoformat()}")
-    ufo, ufo_failed = fetch_timeline_counts(
-        UFO_QUERY,
-        start,
-        end,
-        chunk_days=args.chunk_days,
-        request_timeout=args.request_timeout,
-        request_retries=args.request_retries,
-        pause_between_chunks=args.pause_between_chunks,
-    )
-    print(f"[backfill] fetch crisis timeline: {start.isoformat()} -> {end.isoformat()}")
-    crisis, crisis_failed = fetch_timeline_counts(
-        CRISIS_QUERY,
-        start,
-        end,
-        chunk_days=args.chunk_days,
-        request_timeout=args.request_timeout,
-        request_retries=args.request_retries,
-        pause_between_chunks=args.pause_between_chunks,
-    )
-    print(f"[backfill] fetch control-economy timeline")
-    ctrl_e, ctrl_e_failed = fetch_timeline_counts(
-        CTRL_ECONOMY_QUERY,
-        start,
-        end,
-        chunk_days=args.chunk_days,
-        request_timeout=args.request_timeout,
-        request_retries=args.request_retries,
-        pause_between_chunks=args.pause_between_chunks,
-    )
-    print(f"[backfill] fetch control-security timeline")
-    ctrl_s, ctrl_s_failed = fetch_timeline_counts(
-        CTRL_SECURITY_QUERY,
-        start,
-        end,
-        chunk_days=args.chunk_days,
-        request_timeout=args.request_timeout,
-        request_retries=args.request_retries,
-        pause_between_chunks=args.pause_between_chunks,
-    )
-    print(f"[backfill] fetch control-immigration timeline")
-    ctrl_i, ctrl_i_failed = fetch_timeline_counts(
-        CTRL_IMMIGRATION_QUERY,
-        start,
-        end,
-        chunk_days=args.chunk_days,
-        request_timeout=args.request_timeout,
-        request_retries=args.request_retries,
-        pause_between_chunks=args.pause_between_chunks,
-    )
+    try:
+        selected_queries = parse_selected_queries(args.queries)
+    except ValueError as e:
+        raise SystemExit(str(e))
 
-    failed_chunks = {
-        "ufo": ufo_failed,
-        "crisis": crisis_failed,
-        "control_economy": ctrl_e_failed,
-        "control_security": ctrl_s_failed,
-        "control_immigration": ctrl_i_failed,
-    }
+    print(f"[backfill] selected queries: {', '.join(selected_queries)}")
+    series_map = {k: {} for k in QUERY_MAP}
+    failed_chunks = {k: [] for k in QUERY_MAP}
+    for key in selected_queries:
+        print(f"[backfill] fetch {key} timeline: {start.isoformat()} -> {end.isoformat()}")
+        counts, failed = fetch_timeline_counts(
+            QUERY_MAP[key],  # type: ignore
+            start,
+            end,
+            chunk_days=args.chunk_days,
+            request_timeout=args.request_timeout,
+            request_retries=args.request_retries,
+            pause_between_chunks=args.pause_between_chunks,
+        )
+        series_map[key] = counts  # type: ignore
+        failed_chunks[key] = failed  # type: ignore
+
+    ufo = series_map["ufo"]  # type: ignore
+    crisis = series_map["crisis"]  # type: ignore
+    ctrl_e = series_map["control_economy"]  # type: ignore
+    ctrl_s = series_map["control_security"]  # type: ignore
+    ctrl_i = series_map["control_immigration"]  # type: ignore
+
     total_failed = sum(len(v) for v in failed_chunks.values())  # type: ignore
     if total_failed > 0 and not args.allow_partial:
         raise SystemExit(f"存在失败分段 {total_failed} 个；可加 --allow-partial 继续。")
@@ -347,6 +340,7 @@ def main() -> None:
             "control_security": CTRL_SECURITY_QUERY,
             "control_immigration": CTRL_IMMIGRATION_QUERY,
         },
+        "selected_queries": selected_queries,
         "stats": {
             "inserted_rows": inserted,
             "updated_rows": updated,
