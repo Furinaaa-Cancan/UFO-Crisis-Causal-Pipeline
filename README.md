@@ -295,6 +295,9 @@ python historical_backfill.py --start-date 2010-01-01 --end-date 2016-12-31 --qu
 
 # 分段失败自动二分重试（提升历史段成功率）
 python historical_backfill.py --start-date 1990-01-01 --end-date 1999-12-31 --queries ufo,crisis --allow-partial --min-split-days 90
+
+# 若网络层不稳定：打开分段日志，缩短超时并减少重试（默认禁用系统代理）
+python -u historical_backfill.py --start-date 1980-01-01 --end-date 1981-12-31 --queries ufo,crisis --allow-partial --chunk-days 365 --request-timeout 20 --request-retries 2 --verbose-chunks
 ```
 输出：
 - `data/causal_panel.json`（补充历史日度面板）
@@ -304,6 +307,7 @@ python historical_backfill.py --start-date 1990-01-01 --end-date 1999-12-31 --qu
 说明：
 - 回填默认不覆盖实时抓取行（保护你当天的严格抓取快照）。
 - 回填数据用于样本扩充与稳健性检验，不替代事件级人工核查。
+- 分段失败日会按“缺失观测”跳过，不会被写成 0（避免伪零值污染因果分析）。
 
 ### 9. 逻辑回归测试
 ```bash

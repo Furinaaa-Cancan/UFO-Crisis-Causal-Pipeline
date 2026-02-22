@@ -72,6 +72,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--allow-partial", action="store_true", help="分段失败时跳过该段继续（推荐）")
     p.add_argument("--skip-zero-days", action="store_true", help="跳过全零天（默认保留）")
+    p.add_argument("--use-env-proxy", action="store_true", help="允许 requests 使用系统代理（默认关闭，降低代理握手阻塞风险）")
+    p.add_argument("--verbose-chunks", action="store_true", help="输出每个分段请求与失败重试日志")
     p.add_argument(
         "--queries",
         default="ufo,crisis,control_economy,control_security,control_immigration",
@@ -113,6 +115,7 @@ def _request_timeline_payload(
     mode: str,
     request_timeout: int,
     request_retries: int,
+    use_env_proxy: bool,
 ) -> tuple[dict | None, str]:
     params = {
         "query": query,
@@ -122,20 +125,24 @@ def _request_timeline_payload(
         "enddatetime": _to_gdelt_dt(end, end_of_day=True),
     }
     last_err = ""
+    connect_timeout = max(2, min(8, int(request_timeout)))
+    read_timeout = max(5, int(request_timeout))
     for attempt in range(1, max(1, request_retries) + 1):
         try:
-            resp = requests.get(
-                GDELT_ENDPOINT,
-                params=params,
-                timeout=max(5, request_timeout),
-            )  # type: ignore
+            with requests.Session() as session:
+                session.trust_env = bool(use_env_proxy)
+                resp = session.get(
+                    GDELT_ENDPOINT,
+                    params=params,
+                    timeout=(connect_timeout, read_timeout),
+                )  # type: ignore
             if resp.status_code == 429:
                 raise requests.HTTPError("429 Too Many Requests", response=resp)
             resp.raise_for_status()
             payload = resp.json()  # type: ignore
             return payload, ""
         except Exception as e:
-            last_err = str(e)
+            last_err = f"attempt={attempt}: {e}"
             sleep_s = min(20.0, 1.2 * (2 ** (attempt - 1)))
             time.sleep(sleep_s)
     return None, last_err or "unknown_error"
@@ -161,6 +168,24 @@ def _parse_timeline_payload(payload: dict) -> Dict[str, int]:
     return out
 
 
+def _expand_failed_days(failed: List[dict], lower: date, upper: date) -> set[str]:
+    out: set[str] = set()
+    for item in failed:
+        try:
+            s = parse_date(str(item.get("start", "")))
+            e = parse_date(str(item.get("end", "")))
+        except Exception:
+            continue
+        if e < lower or s > upper:
+            continue
+        cur = max(s, lower)
+        end = min(e, upper)
+        while cur <= end:
+            out.add(cur.isoformat())
+            cur += timedelta(days=1)  # type: ignore
+    return out
+
+
 def _fetch_chunk_with_split(
     query: str,
     start: date,
@@ -169,6 +194,8 @@ def _fetch_chunk_with_split(
     request_retries: int,
     pause_between_chunks: float,
     min_split_days: int,
+    use_env_proxy: bool,
+    verbose_chunks: bool,
 ) -> tuple[Dict[str, int], List[dict]]:
     modes = ("TimelineVolRaw", "TimelineVol")
     mode_errors = []
@@ -180,6 +207,7 @@ def _fetch_chunk_with_split(
             mode=mode,
             request_timeout=request_timeout,
             request_retries=request_retries,
+            use_env_proxy=use_env_proxy,
         )
         if payload is not None:
             return _parse_timeline_payload(payload), []
@@ -187,6 +215,8 @@ def _fetch_chunk_with_split(
 
     span_days = (end - start).days + 1
     if span_days > max(1, int(min_split_days)):
+        if verbose_chunks:
+            print(f"[backfill] split {start.isoformat()} -> {end.isoformat()} (span_days={span_days})", flush=True)
         (l_start, l_end), (r_start, r_end) = split_date_range(start, end)
         left_counts, left_failed = _fetch_chunk_with_split(
             query=query,
@@ -196,6 +226,8 @@ def _fetch_chunk_with_split(
             request_retries=request_retries,
             pause_between_chunks=pause_between_chunks,
             min_split_days=min_split_days,
+            use_env_proxy=use_env_proxy,
+            verbose_chunks=verbose_chunks,
         )
         time.sleep(max(0.0, pause_between_chunks))
         right_counts, right_failed = _fetch_chunk_with_split(
@@ -206,11 +238,18 @@ def _fetch_chunk_with_split(
             request_retries=request_retries,
             pause_between_chunks=pause_between_chunks,
             min_split_days=min_split_days,
+            use_env_proxy=use_env_proxy,
+            verbose_chunks=verbose_chunks,
         )
         merged = left_counts
         merged.update(right_counts)
         return merged, left_failed + right_failed
 
+    if verbose_chunks:
+        print(
+            f"[backfill] fail_leaf {start.isoformat()} -> {end.isoformat()} err={' | '.join(mode_errors)}",
+            flush=True,
+        )
     return {}, [{
         "start": start.isoformat(),  # type: ignore
         "end": end.isoformat(),  # type: ignore
@@ -227,12 +266,16 @@ def fetch_timeline_counts(
     request_retries: int,
     pause_between_chunks: float,
     min_split_days: int,
+    use_env_proxy: bool,
+    verbose_chunks: bool,
 ) -> tuple[Dict[str, int], List[dict]]:
     out: Dict[str, int] = {}
     failed_chunks: List[dict] = []
     cursor = start
     while cursor <= end:
         chunk_end = min(end, cursor + timedelta(days=max(1, chunk_days) - 1))  # type: ignore
+        if verbose_chunks:
+            print(f"[backfill] chunk {cursor.isoformat()} -> {chunk_end.isoformat()}", flush=True)
         counts, failed = _fetch_chunk_with_split(
             query=query,
             start=cursor,
@@ -241,9 +284,16 @@ def fetch_timeline_counts(
             request_retries=request_retries,
             pause_between_chunks=pause_between_chunks,
             min_split_days=min_split_days,
+            use_env_proxy=use_env_proxy,
+            verbose_chunks=verbose_chunks,
         )
         out.update(counts)
         failed_chunks.extend(failed)  # type: ignore
+        if verbose_chunks:
+            print(
+                f"[backfill] chunk_done {cursor.isoformat()} -> {chunk_end.isoformat()} days={len(counts)} failed={len(failed)}",
+                flush=True,
+            )
 
         time.sleep(max(0.0, pause_between_chunks))
         cursor = chunk_end + timedelta(days=1)  # type: ignore
@@ -357,6 +407,8 @@ def main() -> None:
             request_retries=args.request_retries,
             pause_between_chunks=args.pause_between_chunks,
             min_split_days=args.min_split_days,
+            use_env_proxy=args.use_env_proxy,
+            verbose_chunks=args.verbose_chunks,
         )
         series_map[key] = counts  # type: ignore
         failed_chunks[key] = failed  # type: ignore
@@ -382,10 +434,20 @@ def main() -> None:
     updated = 0
     skipped_existing = 0
     skipped_empty = 0
+    skipped_failed = 0
+    failed_day_sets = {
+        key: _expand_failed_days(failed_chunks.get(key, []), start, end)  # type: ignore
+        for key in selected_queries
+    }
 
     d = start
     while d <= end:
         day_iso = d.isoformat()  # type: ignore
+        # 分段失败视为缺失观测，不能按 0 写入，否则会制造伪零值。
+        if any(day_iso in failed_day_sets.get(key, set()) for key in selected_queries):
+            skipped_failed += 1
+            d += timedelta(days=1)  # type: ignore
+            continue
         u = int(ufo.get(day_iso, 0))
         c = int(crisis.get(day_iso, 0))
         ce = int(ctrl_e.get(day_iso, 0))
@@ -440,6 +502,7 @@ def main() -> None:
             "updated_rows": updated,
             "skipped_existing_rows": skipped_existing,
             "skipped_all_zero_days": skipped_empty,
+            "skipped_failed_days": skipped_failed,
             "ufo_nonzero_days": sum(1 for v in ufo.values() if v > 0),  # type: ignore
             "crisis_nonzero_days": sum(1 for v in crisis.values() if v > 0),  # type: ignore
             "failed_chunks_total": total_failed,
@@ -448,6 +511,7 @@ def main() -> None:
         "notes": [
             "本回填基于 GDELT 日度计数，适用于样本量扩充与稳健性分析，不替代事件级人工核查。",
             "默认不覆盖实时抓取行（非 backfill 数据源）。",
+            "失败分段会按缺失观测跳过，不会以零值写入面板。",
         ],
     }
     with REPORT_FILE.open("w", encoding="utf-8") as f:  # type: ignore
@@ -460,6 +524,7 @@ def main() -> None:
     print(f"updated_rows: {updated}")
     print(f"skipped_existing_rows: {skipped_existing}")
     print(f"skipped_all_zero_days: {skipped_empty}")
+    print(f"skipped_failed_days: {skipped_failed}")
     print(f"failed_chunks_total: {total_failed}")
     print(f"[输出] {PANEL_FILE}")
     print(f"[输出] {REPORT_FILE}")

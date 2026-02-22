@@ -517,6 +517,18 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(r1.isoformat(), "1990-01-06")
         self.assertEqual(r2.isoformat(), "1990-01-10")
 
+    def test_historical_backfill_expand_failed_days(self):
+        failed = [
+            {"start": "1990-01-01", "end": "1990-01-03", "error": "x"},
+            {"start": "1990-01-06", "end": "1990-01-06", "error": "y"},
+        ]
+        out = historical_backfill._expand_failed_days(
+            failed,
+            causal_analyzer.parse_date("1990-01-02"),
+            causal_analyzer.parse_date("1990-01-06"),
+        )
+        self.assertEqual(out, {"1990-01-02", "1990-01-03", "1990-01-06"})
+
 
 if __name__ == "__main__":
     unittest.main()
