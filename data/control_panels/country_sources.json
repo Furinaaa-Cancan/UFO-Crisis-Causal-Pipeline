@@ -7,9 +7,21 @@
       "active": true
     },
     {
+      "country": "US",
+      "name": "Google News UAP US",
+      "url": "https://news.google.com/rss/search?q=UAP+OR+UFO+Pentagon+Congress&hl=en-US&gl=US&ceid=US:en",
+      "active": true
+    },
+    {
       "country": "UK",
       "name": "BBC Politics",
       "url": "https://feeds.bbci.co.uk/news/politics/rss.xml",
+      "active": true
+    },
+    {
+      "country": "UK",
+      "name": "Google News UAP UK",
+      "url": "https://news.google.com/rss/search?q=UAP+OR+UFO+Parliament+Ministry+Defence&hl=en-GB&gl=GB&ceid=GB:en",
       "active": true
     },
     {
@@ -19,9 +31,21 @@
       "active": true
     },
     {
+      "country": "Canada",
+      "name": "Google News UAP Canada",
+      "url": "https://news.google.com/rss/search?q=UAP+OR+UFO+Parliament+Canada&hl=en-CA&gl=CA&ceid=CA:en",
+      "active": true
+    },
+    {
       "country": "Australia",
       "name": "ABC Australia Politics",
       "url": "https://www.abc.net.au/news/feed/51120/rss.xml",
+      "active": true
+    },
+    {
+      "country": "Australia",
+      "name": "Google News UAP Australia",
+      "url": "https://news.google.com/rss/search?q=UAP+OR+UFO+Parliament+Australia+Defence&hl=en-AU&gl=AU&ceid=AU:en",
       "active": true
     }
   ]

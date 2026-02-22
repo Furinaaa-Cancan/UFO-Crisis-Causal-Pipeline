@@ -147,6 +147,10 @@ def evaluate_window(
     }
 
 
+def _p_below(value: float | None, threshold: float) -> bool:
+    return isinstance(value, (int, float)) and float(value) < float(threshold)
+
+
 # min_distance_to_shocks 已移至 utils.py
 
 
@@ -213,7 +217,7 @@ def main() -> None:
             for w in WINDOWS:
                 wr = evaluate_window(ufo_series, shocks, placebo_pool, w)
                 out["windows"][str(w)] = wr  # type: ignore
-                if wr.get("status") == "ok" and wr.get("att", 0) > 0 and (wr.get("p_value") or 1.0) < 0.05:  # type: ignore
+                if wr.get("status") == "ok" and wr.get("att", 0) > 0 and _p_below(wr.get("p_value"), 0.05):  # type: ignore
                     sig_pos += 1
 
             topic_series = load_topic_series()
@@ -228,7 +232,7 @@ def main() -> None:
                     out["negative_controls"][topic] = wr  # type: ignore
                     if wr.get("status") == "ok":  # type: ignore
                         neg_est += 1  # type: ignore
-                    if wr.get("status") == "ok" and wr.get("att", 0) > 0 and (wr.get("p_value") or 1.0) < 0.1:  # type: ignore
+                    if wr.get("status") == "ok" and wr.get("att", 0) > 0 and _p_below(wr.get("p_value"), 0.1):  # type: ignore
                         neg_viol += 1
 
                 out["gates"]["significant_positive_windows"] = sig_pos  # type: ignore

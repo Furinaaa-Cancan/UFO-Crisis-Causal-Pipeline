@@ -303,10 +303,12 @@ UFO 严格平衡口径新增“硬政府锚点”过滤：仅有 `government/rep
 ```bash
 python strict_reviewer.py \
   --expected-policy strict-balanced \
+  --max-missing-streak 30 \
   --min-mechanism-ufo-events 8 \
   --min-official-share 0.30 \
   --min-official-lead-events 1
 ```
+说明：长期历史面板（多年跨度）建议 `--max-missing-streak` 不低于 30；阈值过小会把短期源中断误判为“识别失败”。
 
 评审快照会额外输出 `mechanism_sensitivity`（strict / balanced / exploratory 三档）：
 - strict 档：发布级口径（默认主结论仍以此为准）

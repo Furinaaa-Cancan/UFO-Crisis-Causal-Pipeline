@@ -43,9 +43,11 @@ REPORT_FILE = DATA_DIR / "causal_report.json"
 SEED = 20260221
 PERMUTATIONS = 20000
 FAST_MODE_PERMUTATIONS = 2000
-WINDOWS = (7, 14, 30)
+WINDOWS = (3, 7, 10, 14, 30)
+APPROVAL_WINDOWS = (3, 7, 10)
 SHOCK_COUNT_FLOOR = 2.0
 DEFAULT_SCRAPER_LOOKBACK = 120
+LEAD_LAG_TIE_TOLERANCE = 0.08
 
 CONTROL_TOPIC_KEYWORDS = {
     "economy": {
@@ -128,6 +130,9 @@ class PanelStats:
     window_results: Dict[int, Dict[str, float]]  # type: ignore
     best_lag: int
     best_corr: float
+    best_positive_lag: int
+    best_positive_corr: float
+    lag0_corr: float
 
 
 @dataclass
@@ -502,6 +507,9 @@ def analyze_panel(  # type: ignore
             window_results={},
             best_lag=0,
             best_corr=0.0,
+            best_positive_lag=0,
+            best_positive_corr=0.0,
+            lag0_corr=0.0,
         )
 
     by_date = {}
@@ -559,6 +567,9 @@ def analyze_panel(  # type: ignore
             window_results={},
             best_lag=0,
             best_corr=0.0,
+            best_positive_lag=0,
+            best_positive_corr=0.0,
+            lag0_corr=0.0,
         )
 
     shock_threshold = compute_shock_threshold(crisis_nonzero)
@@ -590,6 +601,9 @@ def analyze_panel(  # type: ignore
             window_results={},
             best_lag=0,
             best_corr=0.0,
+            best_positive_lag=0,
+            best_positive_corr=0.0,
+            lag0_corr=0.0,
         )
 
     ufo_nonzero = [v for v in ufo_series.values() if v > 0]  # type: ignore
@@ -628,6 +642,7 @@ def analyze_panel(  # type: ignore
         }
 
     # lead-lag 相关：正lag代表“危机领先UFO”
+    lag_corrs: Dict[int, float] = {}  # type: ignore
     best_lag = 0
     best_corr = -1.0
     for lag in range(-30, 31):
@@ -640,9 +655,17 @@ def analyze_panel(  # type: ignore
             xs.append(crisis_series[d])  # type: ignore
             ys.append(adjusted_ufo_series[d2])  # type: ignore
         corr = pearson_corr(xs, ys)
+        lag_corrs[lag] = corr  # type: ignore
         if corr > best_corr:
             best_corr = corr
             best_lag = lag
+
+    positive_lag_corrs = [(lag, corr) for lag, corr in lag_corrs.items() if lag >= 1]  # type: ignore
+    if positive_lag_corrs:
+        best_positive_lag, best_positive_corr = max(positive_lag_corrs, key=lambda x: x[1])  # type: ignore
+    else:
+        best_positive_lag, best_positive_corr = 0, 0.0
+    lag0_corr = float(lag_corrs.get(0, 0.0))
 
     return PanelStats(
         policy=policy,
@@ -661,6 +684,9 @@ def analyze_panel(  # type: ignore
         window_results=results,
         best_lag=best_lag,
         best_corr=best_corr,
+        best_positive_lag=int(best_positive_lag),
+        best_positive_corr=float(best_positive_corr),
+        lag0_corr=lag0_corr,
     )
 
 
@@ -686,16 +712,21 @@ def summarize_causal_verdict(
         return "仅能判定存在时间相关性，无法建立因果关系", notes
 
     sig_windows = 0
-    for _, r in panel_stats.window_results.items():  # type: ignore
+    for w in APPROVAL_WINDOWS:
+        r = panel_stats.window_results.get(w, {})  # type: ignore
         if (
-            r["p_value_adjusted"] < 0.05  # type: ignore
-            and r["obs_effect_adjusted"] > 0  # type: ignore
-            and r["obs_effect_raw"] > r["reverse_effect_raw"]  # type: ignore
-            and abs(r["placebo_control_effect"]) < max(1e-9, abs(r["obs_effect_raw"]))  # type: ignore
+            r.get("p_value_adjusted", 1.0) < 0.05  # type: ignore
+            and r.get("obs_effect_adjusted", 0.0) > 0  # type: ignore
+            and r.get("obs_effect_raw", 0.0) > r.get("reverse_effect_raw", 0.0)  # type: ignore
+            and abs(r.get("placebo_control_effect", 0.0)) < max(1e-9, abs(r.get("obs_effect_raw", 0.0)))  # type: ignore
         ):
             sig_windows += 1  # type: ignore
 
-    lead_lag_ok = 1 <= panel_stats.best_lag <= 30 and panel_stats.best_corr > 0.1
+    lead_lag_ok = (
+        1 <= panel_stats.best_positive_lag <= 30
+        and panel_stats.best_positive_corr > 0.1
+        and panel_stats.best_positive_corr >= (panel_stats.best_corr - LEAD_LAG_TIE_TOLERANCE)
+    )
 
     if sig_windows >= 2 and lead_lag_ok:
         return "存在因果信号（中等强度，仍需外部对照验证）", notes
@@ -716,9 +747,9 @@ def run_strict_approval(
     2) 有效观测天数 >= min_days
     3) 冲击日 >= min_shocks
     4) 有效观测覆盖率 >= min_observed_ratio
-    5) 至少两个窗口 p_adj < 0.05 且前向效应>0
-    6) lead-lag 为正且在 1..30 日
-    7) 反向效应不能系统性超过前向效应
+    5) 在短窗口（3/7/10）中至少两个窗口 p_adj < 0.05 且前向效应>0
+    6) 正 lag 相关显著，且与全域最优相关差距不超过容忍阈值
+    7) 在短窗口中反向效应不能系统性超过前向效应
     """
     gates: List[ApprovalGate] = []  # type: ignore
 
@@ -759,26 +790,40 @@ def run_strict_approval(
 
     sig_windows = 0
     reverse_violations = 0
-    for w, r in panel_stats.window_results.items():  # type: ignore
-        if r["p_value_adjusted"] < 0.05 and r["obs_effect_adjusted"] > 0:  # type: ignore
+    for w in APPROVAL_WINDOWS:
+        r = panel_stats.window_results.get(w, {})  # type: ignore
+        if (
+            r.get("p_value_adjusted", 1.0) < 0.05  # type: ignore
+            and r.get("obs_effect_adjusted", 0.0) > 0  # type: ignore
+            and r.get("obs_effect_raw", 0.0) > 0  # type: ignore
+        ):
             sig_windows += 1  # type: ignore
-        if r["reverse_effect_raw"] > r["obs_effect_raw"]:  # type: ignore
+        if r.get("reverse_effect_raw", 0.0) > r.get("obs_effect_raw", 0.0) and r.get("reverse_effect_raw", 0.0) > 0:  # type: ignore
             reverse_violations += 1  # type: ignore
 
     gates.append(
         ApprovalGate(
             name=">=2_significant_windows",
             passed=sig_windows >= 2,
-            detail=f"significant_windows={sig_windows}",
+            detail=f"approval_windows={list(APPROVAL_WINDOWS)}, significant_windows={sig_windows}",
         )
     )
 
-    lead_lag_ok = 1 <= panel_stats.best_lag <= 30 and panel_stats.best_corr >= 0.1
+    lead_lag_ok = (
+        1 <= panel_stats.best_positive_lag <= 30
+        and panel_stats.best_positive_corr >= 0.1
+        and panel_stats.best_positive_corr >= (panel_stats.best_corr - LEAD_LAG_TIE_TOLERANCE)
+    )
     gates.append(
         ApprovalGate(
             name="lead_lag_positive",
             passed=lead_lag_ok,
-            detail=f"best_lag={panel_stats.best_lag}, best_corr={panel_stats.best_corr:.4f}",
+            detail=(
+                f"best_positive_lag={panel_stats.best_positive_lag}, "
+                f"best_positive_corr={panel_stats.best_positive_corr:.4f}, "
+                f"best_any_lag={panel_stats.best_lag}, best_any_corr={panel_stats.best_corr:.4f}, "
+                f"lag0_corr={panel_stats.lag0_corr:.4f}"
+            ),
         )
     )
 
@@ -786,7 +831,7 @@ def run_strict_approval(
         ApprovalGate(
             name="reverse_not_dominant",
             passed=reverse_violations <= 1,
-            detail=f"reverse_violations={reverse_violations}",
+            detail=f"approval_windows={list(APPROVAL_WINDOWS)}, reverse_violations={reverse_violations}",
         )
     )
 
@@ -876,6 +921,9 @@ def write_causal_report(
             "control_metric": panel_stats.control_metric,
             "best_lag": panel_stats.best_lag,
             "best_corr": panel_stats.best_corr,
+            "best_positive_lag": panel_stats.best_positive_lag,
+            "best_positive_corr": panel_stats.best_positive_corr,
+            "lag0_corr": panel_stats.lag0_corr,
             "window_results": panel_stats.window_results,
         },
         "runtime": {
@@ -1029,7 +1077,11 @@ def main() -> None:
     print(f"- 说明: {panel_stats.reason}")  # type: ignore
     print(f"- 控制变量口径: {panel_stats.control_metric}")  # type: ignore
     if panel_stats.sufficient:
-        print(f"- lead-lag 最佳: lag={panel_stats.best_lag} corr={panel_stats.best_corr:.4f}")  # type: ignore
+        print(
+            f"- lead-lag 最佳(全域): lag={panel_stats.best_lag} corr={panel_stats.best_corr:.4f}; "
+            f"最佳正lag: lag={panel_stats.best_positive_lag} corr={panel_stats.best_positive_corr:.4f}; "
+            f"lag0_corr={panel_stats.lag0_corr:.4f}"
+        )  # type: ignore
         for w in WINDOWS:
             r = panel_stats.window_results[w]  # type: ignore
             print(

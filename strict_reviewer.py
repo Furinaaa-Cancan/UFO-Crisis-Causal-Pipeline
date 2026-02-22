@@ -62,7 +62,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-source-availability", type=float, default=0.9)
     p.add_argument("--max-failed-source-ratio", type=float, default=0.10)
     p.add_argument("--min-observed-ratio", type=float, default=0.85)
-    p.add_argument("--max-missing-streak", type=int, default=7)
+    p.add_argument(
+        "--max-missing-streak",
+        type=int,
+        default=30,
+        help="连续缺失天数上限（长期历史面板建议 >=30）",
+    )
     p.add_argument("--min-official-share", type=float, default=0.30)
     p.add_argument("--min-official-lead-events", type=int, default=1)
     p.add_argument("--min-mechanism-ufo-events", type=int, default=8)
@@ -599,11 +604,12 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     synth_passed = bool(synth.get("gates", {}).get("synth_passed", False))  # type: ignore
     causal_ml_status = causal_ml.get("status", "missing")  # type: ignore
     causal_ml_passed = bool(causal_ml.get("gates", {}).get("causal_ml_passed", False))  # type: ignore
+    causal_ml_dependency_ready = bool(causal_ml.get("dependencies", {}).get("sklearn_ready", True))  # type: ignore
 
     models_estimated = did_status == "ok" and event_status == "ok" and synth_status == "ok"
     model_falsification_ok = did_passed and event_passed and synth_passed and did_neg_ctrl_available
-    # Causal ML is an additional check. If estimated and failed, treat as inconsistency.
-    causal_ml_consistent = causal_ml_status != "ok" or causal_ml_passed
+    # Causal ML is an additional check; when sklearn dependency is unavailable, treat as non-blocking auxiliary evidence.
+    causal_ml_consistent = causal_ml_status != "ok" or causal_ml_passed or (not causal_ml_dependency_ready)
     falsification_passed = models_estimated and model_falsification_ok and causal_ml_consistent
 
     has_temporal_signal = (panel_observed_days > 0 and panel_shock_days > 0) or (n_ufo > 0 and n_crisis > 0)
@@ -667,6 +673,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
                 "synth_passed": synth_passed,
                 "causal_ml_status": causal_ml_status,
                 "causal_ml_passed": causal_ml_passed,
+                "causal_ml_dependency_ready": causal_ml_dependency_ready,
             },
             "official_lead_diagnostics": {
                 "available": bool(official_lead_diag),

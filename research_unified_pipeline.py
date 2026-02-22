@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-days", type=int, default=180)
     p.add_argument("--min-shocks", type=int, default=12)
     p.add_argument("--min-observed-ratio", type=float, default=0.85)
+    p.add_argument("--max-missing-streak", type=int, default=30)
     p.add_argument("--controls-lookback-days", type=int, default=3650)
     return p.parse_args()
 
@@ -97,7 +98,18 @@ def main() -> None:
             if code != 0:
                 raise SystemExit(code)
 
-    code = run_cmd([py, "strict_reviewer.py", "--expected-policy", model_policy])
+    code = run_cmd(
+        [
+            py,
+            "strict_reviewer.py",
+            "--expected-policy",
+            model_policy,
+            "--min-observed-ratio",
+            str(args.min_observed_ratio),
+            "--max-missing-streak",
+            str(args.max_missing_streak),
+        ]
+    )
     if code != 0:
         raise SystemExit(code)
 

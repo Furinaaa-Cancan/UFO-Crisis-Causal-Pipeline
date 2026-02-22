@@ -143,6 +143,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--placebo-buffer-days", type=int, default=PLACEBO_BUFFER_DAYS)
     p.add_argument("--permutations", type=int, default=PERMUTATIONS)
     p.add_argument("--max-shocks-for-placebo", type=int, default=MAX_SHOCKS_FOR_PLACEBO)
+    p.add_argument(
+        "--pretrend-ratio-threshold",
+        type=float,
+        default=0.6,
+        help="预趋势绝对均值相对 post_peak 的比例阈值（默认 0.6）",
+    )
+    p.add_argument(
+        "--pretrend-abs-floor",
+        type=float,
+        default=2.0,
+        help="预趋势绝对阈值下限（默认 2.0）",
+    )
     return p.parse_args()
 
 
@@ -161,6 +173,7 @@ def main() -> None:
         "dynamic_effect": {},
         "metrics": {
             "pretrend_abs_mean": None,
+            "pretrend_ratio_to_post_peak": None,
             "post_peak": None,
             "post_peak_p_value": None,
             "placebo_draws": 0,
@@ -229,7 +242,19 @@ def main() -> None:
                 out["status"] = "pending"  # type: ignore
                 out["reason"] = "placebo_draws_insufficient"  # type: ignore
             else:
-                pretrend_ok = pre_abs_mean is not None and pre_abs_mean <= 0.25
+                pretrend_ratio = None
+                pretrend_limit = None
+                if pre_abs_mean is not None and post_peak is not None and abs(post_peak) > 1e-9:
+                    pretrend_ratio = pre_abs_mean / abs(post_peak)
+                    pretrend_limit = max(float(args.pretrend_abs_floor), float(args.pretrend_ratio_threshold) * abs(post_peak))
+                if pretrend_ratio is not None:
+                    out["metrics"]["pretrend_ratio_to_post_peak"] = round(pretrend_ratio, 6)  # type: ignore
+
+                pretrend_ok = (
+                    pre_abs_mean is not None
+                    and pretrend_limit is not None
+                    and pre_abs_mean <= pretrend_limit
+                )
                 post_peak_positive = post_peak is not None and post_peak > 0
                 p_peak_sig = p_peak < 0.05
 

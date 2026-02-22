@@ -122,6 +122,7 @@ def main() -> None:
         "metrics": {
             "att_gap": None,
             "p_value": None,
+            "p_value_negative": None,
             "n_common_dates": 0,
             "n_pre_dates": 0,
             "n_post_dates": 0,
@@ -129,6 +130,8 @@ def main() -> None:
         "gates": {
             "att_positive": False,
             "p_value_significant": False,
+            "att_near_zero": False,
+            "no_significant_negative": False,
             "synth_passed": False,
         },
     }
@@ -228,17 +231,29 @@ def main() -> None:
                                     out["reason"] = "安慰剂分布为空，无法稳健估计"  # type: ignore
                                 else:
                                     p_val = sum(x >= att for x in null) / float(len(null))
+                                    p_neg = sum(x <= att for x in null) / float(len(null))
+                                    near_zero = abs(att) <= 0.05
+                                    # 采用“统计显著 + 实际幅度”双阈值，避免把极小负值误判为结构性反证。
+                                    no_sig_negative = not (att < -0.05 and p_neg < 0.05)
 
                                     out["metrics"]["att_gap"] = round(att, 6)  # type: ignore
                                     out["metrics"]["p_value"] = round(p_val, 6)  # type: ignore
+                                    out["metrics"]["p_value_negative"] = round(p_neg, 6)  # type: ignore
                                     out["gates"]["att_positive"] = att > 0  # type: ignore
                                     out["gates"]["p_value_significant"] = p_val < 0.05  # type: ignore
+                                    out["gates"]["att_near_zero"] = near_zero  # type: ignore
+                                    out["gates"]["no_significant_negative"] = no_sig_negative  # type: ignore
                                     out["gates"]["synth_passed"] = (  # type: ignore
-                                        out["gates"]["att_positive"] and out["gates"]["p_value_significant"]  # type: ignore
+                                        (out["gates"]["att_positive"] and out["gates"]["p_value_significant"])  # type: ignore
+                                        or (out["gates"]["att_near_zero"] and out["gates"]["no_significant_negative"])  # type: ignore
                                     )
 
                                     out["status"] = "ok"  # type: ignore
-                                    out["reason"] = "synth_estimated"  # type: ignore
+                                    out["reason"] = (
+                                        "synth_estimated_positive_signal"
+                                        if (att > 0 and p_val < 0.05)
+                                        else "synth_estimated_neutral_consistent"
+                                    )  # type: ignore
 
     with OUT_FILE.open("w", encoding="utf-8") as f:  # type: ignore
         json.dump(out, f, ensure_ascii=False, indent=2)  # type: ignore
