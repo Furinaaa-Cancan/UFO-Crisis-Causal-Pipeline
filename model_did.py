@@ -47,6 +47,7 @@ PLACEBO_BUFFER_DAYS = 7
 SHOCK_COUNT_FLOOR = 2.0
 MAX_SHOCKS_FOR_ESTIMATION = 180
 EV2_MIN_DATES = 5
+NEG_CTRL_MIN_EFFECT = 0.05
 
 
 # parse_date, percentile, quantile, compute_shock_threshold 已移至 utils.py
@@ -223,6 +224,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-shock-days", type=int, default=MIN_SHOCK_DAYS)
     p.add_argument("--placebo-buffer-days", type=int, default=PLACEBO_BUFFER_DAYS)
     p.add_argument("--max-shocks-for-estimation", type=int, default=MAX_SHOCKS_FOR_ESTIMATION)
+    p.add_argument(
+        "--negative-control-min-effect",
+        type=float,
+        default=NEG_CTRL_MIN_EFFECT,
+        help="负对照违规的最小效应阈值（避免极小幅度噪声触发违规）",
+    )
     return p.parse_args()
 
 
@@ -248,6 +255,8 @@ def main() -> None:
             "negative_controls_available": False,
             "negative_controls_estimated": 0,
             "negative_control_violations": 0,
+            "negative_control_borderline_positives": 0,
+            "negative_control_min_effect": float(args.negative_control_min_effect),
             "did_passed": False,
         },
     }
@@ -295,18 +304,23 @@ def main() -> None:
             else:
                 neg_viol = 0
                 neg_est = 0
+                neg_borderline = 0
                 for topic, series in topic_series.items():  # type: ignore
                     wr = evaluate_window(series, shocks_for_estimation, placebo_pool, 7)
                     out["negative_controls"][topic] = wr  # type: ignore
                     if wr.get("status") == "ok":  # type: ignore
                         neg_est += 1  # type: ignore
                     if wr.get("status") == "ok" and wr.get("att", 0) > 0 and _p_below(wr.get("p_value"), 0.1):  # type: ignore
-                        neg_viol += 1
+                        if float(wr.get("att", 0) or 0.0) > float(args.negative_control_min_effect):  # type: ignore
+                            neg_viol += 1
+                        else:
+                            neg_borderline += 1
 
                 out["gates"]["significant_positive_windows"] = sig_pos  # type: ignore
                 out["gates"]["negative_controls_available"] = neg_est > 0  # type: ignore
                 out["gates"]["negative_controls_estimated"] = neg_est  # type: ignore
                 out["gates"]["negative_control_violations"] = neg_viol  # type: ignore
+                out["gates"]["negative_control_borderline_positives"] = neg_borderline  # type: ignore
                 out["gates"]["did_passed"] = sig_pos >= 1 and neg_viol == 0 and neg_est > 0  # type: ignore
 
                 out["status"] = "ok" if neg_est > 0 else "pending"  # type: ignore

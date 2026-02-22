@@ -41,7 +41,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-shocks", type=int, default=12)
     p.add_argument("--min-observed-ratio", type=float, default=0.85)
     p.add_argument("--max-missing-streak", type=int, default=30)
-    p.add_argument("--controls-lookback-days", type=int, default=3650)
+    p.add_argument(
+        "--controls-lookback-days",
+        type=int,
+        default=-1,
+        help="<=0 自动按 causal_panel 全时段构建对照面板；>0 使用回看天数",
+    )
     return p.parse_args()
 
 
@@ -79,9 +84,9 @@ def main() -> None:
     if not args.skip_controls:
         controls_cmd = [py, "control_panel_builder.py", "--lookback-days", str(args.controls_lookback_days)]
         if args.skip_scrape:
-            # Keep --skip-scrape semantically offline by default.
-            controls_cmd.append("--skip-countries")
-            print("[info] --skip-scrape 已开启：control_panel_builder 跳过 country RSS 抓取，仅更新 topics。")
+            # Keep --skip-scrape semantically offline by default while still writing a full zero-filled country panel.
+            controls_cmd.append("--offline-zero-fill-countries")
+            print("[info] --skip-scrape 已开启：control_panel_builder 使用离线国家零值网格，不触发 country RSS 抓取。")
 
         code = run_cmd(controls_cmd)
         if code != 0:

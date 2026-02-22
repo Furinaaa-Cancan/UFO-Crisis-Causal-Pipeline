@@ -15,7 +15,7 @@ import csv
 import json
 import re
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -30,6 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent  # type: ignore
 DATA_DIR = BASE_DIR / "data"
 CONTROL_DIR = DATA_DIR / "control_panels"
 SCRAPED_FILE = DATA_DIR / "scraped_news.json"
+PANEL_FILE = DATA_DIR / "causal_panel.json"
 TOPIC_FILE = CONTROL_DIR / "control_topics.csv"
 COUNTRY_FILE = CONTROL_DIR / "country_controls.csv"
 COUNTRY_SOURCES_FILE = CONTROL_DIR / "country_sources.json"
@@ -38,8 +39,8 @@ REPORT_FILE = CONTROL_DIR / "control_panel_build_report.json"
 REQUEST_TIMEOUT = 20
 REQUEST_RETRIES = 3
 MAX_ITEMS_PER_FEED = 120
-# Use a long-horizon default so DID/Synth can estimate on historical windows.
-DEFAULT_LOOKBACK_DAYS = 3650
+# <= 0 means auto-infer full horizon from causal_panel date bounds.
+DEFAULT_LOOKBACK_DAYS = -1
 
 TOPIC_KEYWORDS = {
     "sports": {
@@ -201,7 +202,50 @@ def build_date_grid(oldest, today) -> List[str]:
     return [(oldest + timedelta(days=i)).isoformat() for i in range(n_days)]  # type: ignore
 
 
-def build_topic_controls(lookback_days: int) -> dict:
+def _panel_date_bounds() -> Tuple[date | None, date | None]:
+    if not PANEL_FILE.exists():  # type: ignore
+        return None, None
+    try:
+        with PANEL_FILE.open("r", encoding="utf-8") as f:
+            payload = json.load(f)  # type: ignore
+        rows = payload.get("rows", []) if isinstance(payload, dict) else []
+        if not isinstance(rows, list):
+            return None, None
+        run_day_rows = [r for r in rows if isinstance(r, dict) and r.get("date_scope") == "run_day_only"]
+        effective_rows = run_day_rows if run_day_rows else [r for r in rows if isinstance(r, dict)]
+        ds = []
+        for r in effective_rows:
+            d = r.get("date")
+            if not isinstance(d, str):
+                continue
+            try:
+                ds.append(datetime.strptime(d, "%Y-%m-%d").date())  # type: ignore
+            except Exception:
+                continue
+        if not ds:
+            return None, None
+        return min(ds), max(ds)
+    except Exception:
+        return None, None
+
+
+def resolve_grid_window(lookback_days: int) -> Tuple[date, date, str]:
+    today = datetime.now(timezone.utc).date()  # type: ignore
+    if lookback_days > 0:
+        oldest = today - timedelta(days=lookback_days)  # type: ignore
+        return oldest, today, f"lookback_days={lookback_days}"
+
+    panel_oldest, panel_latest = _panel_date_bounds()
+    if panel_oldest is not None:
+        eff_today = max(today, panel_latest or today)
+        return panel_oldest, eff_today, "auto_from_causal_panel"
+
+    fallback_days = 3650
+    oldest = today - timedelta(days=fallback_days)  # type: ignore
+    return oldest, today, f"fallback_lookback_days={fallback_days}"
+
+
+def build_topic_controls(oldest: date, today: date) -> dict:
     if not SCRAPED_FILE.exists():  # type: ignore
         return {"status": "blocked", "reason": "scraped_news.json 不存在", "updated": 0}
 
@@ -213,8 +257,6 @@ def build_topic_controls(lookback_days: int) -> dict:
     rows.extend(scraped.get("crisis_news", []))  # type: ignore
     rows.extend(scraped.get("rejected_news", []))  # type: ignore
 
-    today = datetime.now(timezone.utc).date()  # type: ignore
-    oldest = today - timedelta(days=lookback_days)  # type: ignore
     grid_dates = build_date_grid(oldest, today)
 
     counts: Dict[Tuple[str, str], int] = defaultdict(int)  # type: ignore
@@ -283,10 +325,8 @@ def parse_feed_items(url: str) -> Tuple[List[dict] | None, str | None]:
     return items, None
 
 
-def build_country_controls(lookback_days: int) -> dict:
+def build_country_controls(oldest: date, today: date, fetch_feeds: bool = True) -> dict:
     sources = load_country_sources()
-    today = datetime.now(timezone.utc).date()  # type: ignore
-    oldest = today - timedelta(days=lookback_days)  # type: ignore
     grid_dates = build_date_grid(oldest, today)
     countries = sorted({str(src.get("country", "Unknown")) for src in sources})  # type: ignore
 
@@ -297,6 +337,17 @@ def build_country_controls(lookback_days: int) -> dict:
         country = src.get("country", "Unknown")  # type: ignore
         name = src.get("name", "")  # type: ignore
         url = src.get("url", "")  # type: ignore
+        if not fetch_feeds:
+            feed_stats.append({
+                "country": country,
+                "source": name,
+                "url": url,
+                "domain": urlsplit(url).netloc.lower(),
+                "status": "skipped_offline_zero_fill",
+                "error": None,
+                "items": 0,
+            })
+            continue
         items, err = parse_feed_items(url)
         if items is None:
             feed_stats.append({
@@ -352,6 +403,9 @@ def build_country_controls(lookback_days: int) -> dict:
     if not feed_stats:
         status = "blocked"
         reason = "no_active_country_sources"
+    elif not fetch_feeds:
+        status = "ok"
+        reason = "offline_zero_filled_grid"
     elif failures == len(feed_stats):
         status = "ok"
         reason = "all_country_sources_failed_zero_filled_grid"
@@ -382,23 +436,39 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lookback-days", type=int, default=DEFAULT_LOOKBACK_DAYS)
     p.add_argument("--skip-topics", action="store_true")
     p.add_argument("--skip-countries", action="store_true")
+    p.add_argument(
+        "--offline-zero-fill-countries",
+        action="store_true",
+        help="不联网抓取国家源，直接按日期网格输出国家零值面板",
+    )
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    oldest, today, window_mode = resolve_grid_window(args.lookback_days)
 
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
         "lookback_days": args.lookback_days,
+        "grid_window": {
+            "mode": window_mode,
+            "oldest": oldest.isoformat(),
+            "today": today.isoformat(),
+            "grid_days": len(build_date_grid(oldest, today)),
+        },
         "topics": {"status": "skipped", "reason": "--skip-topics", "updated": 0},
         "countries": {"status": "skipped", "reason": "--skip-countries", "updated": 0},
     }
 
     if not args.skip_topics:
-        report["topics"] = build_topic_controls(args.lookback_days)  # type: ignore
+        report["topics"] = build_topic_controls(oldest, today)  # type: ignore
     if not args.skip_countries:
-        report["countries"] = build_country_controls(args.lookback_days)  # type: ignore
+        report["countries"] = build_country_controls(
+            oldest,
+            today,
+            fetch_feeds=not args.offline_zero_fill_countries,
+        )  # type: ignore
 
     with REPORT_FILE.open("w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)  # type: ignore

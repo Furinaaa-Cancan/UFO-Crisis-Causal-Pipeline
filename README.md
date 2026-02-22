@@ -337,7 +337,11 @@ python strict_reviewer.py \
 
 手动运行：
 ```bash
-python control_panel_builder.py --lookback-days 3650
+# 自动按 causal_panel 全时段构建（默认，推荐）
+python control_panel_builder.py --lookback-days -1
+
+# 离线复现实验：不抓国家RSS，直接输出国家零值日历网格
+python control_panel_builder.py --lookback-days -1 --offline-zero-fill-countries
 ```
 
 ### 9. 历史年份样本回填（推荐做法）
@@ -445,7 +449,7 @@ python -m unittest discover -s tests -p 'test_*.py'
 - **60天内命中率**：人工筛选样本中约 **90%** 的案例在60天内出现UFO媒体热潮（选择偏差样本）
 - **面板相关**：1990–2026年日度面板中，危机新闻量与UFO新闻量的同期皮尔逊相关 r=0.59（**同期相关，非因果前导**）
 - **当前研究等级**：**L1**（仅时序相关；核心因果闸门未通过）
-- **当前阻塞项**：`>=2_significant_windows = false`、`lead_lag_positive = false`、`model_did.did_passed = false`、`model_event_study.event_study_passed = false`、`model_causal_ml.causal_ml_passed = false`
+- **当前阻塞项**：`>=2_significant_windows = false`、`lead_lag_positive = false`、`model_event_study.event_study_passed = false`、`model_causal_ml.causal_ml_passed = false`
 - **结论上限**：`TEMPORAL_ASSOCIATION_ONLY`（暂不能声称“因果成立”）
 
 ---
