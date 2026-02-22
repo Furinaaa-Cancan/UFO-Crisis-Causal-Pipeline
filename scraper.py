@@ -181,6 +181,22 @@ UFO_GOVERNANCE_KEYWORDS = [
     "government",
     "official",
 ]
+UFO_GOVERNANCE_HARD_KEYWORDS = [
+    "white house",
+    "pentagon",
+    "department of defense",
+    "dod",
+    "congress",
+    "senate",
+    "house",
+    "committee",
+    "hearing",
+    "testimony",
+    "briefing",
+    "uap task force",
+    "aaro",
+    "nasa",
+]
 UFO_ACTOR_KEYWORDS = [
     "trump",
     "biden",
@@ -1258,6 +1274,7 @@ def evaluate_base_authenticity(items, lookback_days, policy):
             ufo_signal_hits.extend([kw for kw in ufo_ambiguous_hits if kw not in ufo_signal_hits])
         ufo_strong_hits = keyword_hits(text, UFO_STRONG_SIGNAL_KEYWORDS)
         ufo_government_hits = keyword_hits(text, UFO_GOVERNANCE_KEYWORDS)
+        ufo_government_hard_hits = keyword_hits(text, UFO_GOVERNANCE_HARD_KEYWORDS)
         crisis_hits = keyword_hits(text, CRISIS_KEYWORDS)
         hard_crisis_hits = keyword_hits(text, CRISIS_HARD_SIGNAL_KEYWORDS)
         official_action_hits = keyword_hits(text, OFFICIAL_ACTION_KEYWORDS)
@@ -1293,6 +1310,7 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         item["ufo_ambiguous_keywords"] = ufo_ambiguous_hits[:12]  # type: ignore
         item["ufo_strong_keywords"] = ufo_strong_hits[:12]  # type: ignore
         item["ufo_government_keywords"] = ufo_government_hits[:12]  # type: ignore
+        item["ufo_government_hard_keywords"] = ufo_government_hard_hits[:12]  # type: ignore
         item["crisis_keywords"] = crisis_hits[:12]  # type: ignore
         item["hard_crisis_keywords"] = hard_crisis_hits[:12]  # type: ignore
         item["official_action_keywords"] = official_action_hits[:12]  # type: ignore
@@ -1418,8 +1436,12 @@ def evaluate_base_authenticity(items, lookback_days, policy):
                 hard_reasons.append("ufo_signal_only_in_description")
             if policy.get("require_ufo_strong_signal", False) and not ufo_strong_hits and not is_official:  # type: ignore
                 hard_reasons.append("ufo_without_strong_signal")
-            if policy.get("require_ufo_government_context", False) and not ufo_government_hits and not is_official:  # type: ignore
-                hard_reasons.append("ufo_without_government_context")
+            if policy.get("require_ufo_government_context", False) and not is_official:  # type: ignore
+                if not ufo_government_hits:
+                    hard_reasons.append("ufo_without_government_context")
+                # Hard governance anchors prevent generic "government/report" wording from passing.
+                if not ufo_government_hard_hits:
+                    hard_reasons.append("ufo_without_hard_government_context")
 
         item["authenticity"] = {  # type: ignore
             "base_score": max(0, score),
@@ -2175,9 +2197,19 @@ def classify_official_media_pair_tier(media_row, semantic_score):
     weight = int(media_row.get("weight", 1) or 1)  # type: ignore
     is_aggregator = bool(media_row.get("is_aggregator", False))  # type: ignore
     is_aggregator_proxy = bool(media_row.get("is_aggregator_proxy", False))  # type: ignore
+    publisher_mirror_direct = bool(media_row.get("publisher_mirror_in_direct_sources", False))  # type: ignore
     has_publisher = bool(media_row.get("publisher_domain") or media_row.get("publisher_name"))  # type: ignore
     has_timestamp = media_row.get("published_dt") is not None  # type: ignore
     if source_type == "rss" and weight >= 2 and not is_aggregator and semantic_score >= 3:
+        return "strict"
+    if (
+        source_type == "rss"
+        and is_aggregator_proxy
+        and publisher_mirror_direct
+        and has_publisher
+        and has_timestamp
+        and semantic_score >= 3
+    ):
         return "strict"
     if source_type == "rss" and is_aggregator_proxy and has_publisher and has_timestamp and semantic_score >= 3:
         return "proxy_strict"
@@ -2247,6 +2279,37 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
         else:
             media_rows.append(row)
 
+    direct_media_domains = set()
+    direct_media_sources = set()
+    for row in media_rows:
+        if row.get("source_type") != "rss":
+            continue
+        if bool(row.get("is_aggregator", False)):
+            continue
+        if int(row.get("weight", 1) or 1) < 2:
+            continue
+        domain = str(row.get("domain", "") or "").lower()
+        source = normalize_text(str(row.get("source", "") or "")).lower()
+        effective_source = normalize_text(str(row.get("effective_source", "") or "")).lower()
+        if domain:
+            direct_media_domains.add(domain)  # type: ignore
+        if source:
+            direct_media_sources.add(source)  # type: ignore
+        if effective_source:
+            direct_media_sources.add(effective_source)  # type: ignore
+
+    for row in media_rows:
+        if not bool(row.get("is_aggregator_proxy", False)):
+            row["publisher_mirror_in_direct_sources"] = False  # type: ignore
+            continue
+        publisher_domain = str(row.get("publisher_domain", "") or "").lower()
+        publisher_name = normalize_text(str(row.get("publisher_name", "") or "")).lower()
+        has_direct_mirror = bool(
+            (publisher_domain and publisher_domain in direct_media_domains)
+            or (publisher_name and publisher_name in direct_media_sources)
+        )
+        row["publisher_mirror_in_direct_sources"] = has_direct_mirror  # type: ignore
+
     pair_candidates = []
     blocker_counter = Counter()
     if not official_rows:
@@ -2271,6 +2334,7 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
                 lag_hours = round((med["published_dt"] - off["published_dt"]).total_seconds() / 3600.0, 3)  # type: ignore
             lead_nonnegative = bool(lag_days >= 0 and (lag_hours is None or lag_hours >= 0))
             lead_strict = bool((lag_days > 0) or (lag_days == 0 and isinstance(lag_hours, (int, float)) and lag_hours > 0))
+            evidence_tier = classify_official_media_pair_tier(med, semantic_score)
             pair_candidates.append({
                 "official_event_key": off.get("event_key"),
                 "official_source": off.get("source"),
@@ -2298,6 +2362,7 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
                 "media_source_type": med.get("source_type"),
                 "media_is_aggregator": bool(med.get("is_aggregator", False)),
                 "media_is_aggregator_proxy": bool(med.get("is_aggregator_proxy", False)),
+                "media_publisher_mirror_in_direct_sources": bool(med.get("publisher_mirror_in_direct_sources", False)),
                 "lag_days": int(lag_days),
                 "lag_hours": lag_hours,
                 "lead_nonnegative": lead_nonnegative,
@@ -2305,7 +2370,10 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
                 "semantic_score": int(semantic_score),
                 "token_overlap": int(token_overlap),
                 "semantic_match_reasons": match_reasons,
-                "evidence_tier": classify_official_media_pair_tier(med, semantic_score),
+                "evidence_tier": evidence_tier,
+                "strict_upgraded_from_proxy": bool(
+                    evidence_tier == "strict" and bool(med.get("is_aggregator_proxy", False))
+                ),
             })
         if not found_in_window:
             blocker_counter["no_media_within_lag_window"] += 1  # type: ignore
@@ -2362,6 +2430,7 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
     strict_positive = [p for p in strict_pairs if bool(p.get("lead_strict_positive"))]  # type: ignore
     strict_ts = [p for p in strict_pairs if isinstance(p.get("lag_hours"), (int, float))]
     proxy_positive = [p for p in proxy_strict_pairs if bool(p.get("lead_strict_positive"))]  # type: ignore
+    strict_upgraded_proxy = [p for p in strict_pairs if bool(p.get("strict_upgraded_from_proxy"))]  # type: ignore
     official_with_strict_followup = sorted({p.get("official_event_key") for p in strict_pairs if p.get("official_event_key")})  # type: ignore
     publisher_resolved_pairs = [p for p in pairs if p.get("media_publisher_domain") or p.get("media_publisher")]  # type: ignore
 
@@ -2383,6 +2452,7 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
             "strict_positive_lag_pairs": len(strict_positive),
             "strict_with_timestamp_pairs": len(strict_ts),
             "proxy_strict_positive_lag_pairs": len(proxy_positive),
+            "strict_upgraded_from_proxy_pairs": len(strict_upgraded_proxy),
             "pairs_with_resolved_publisher": len(publisher_resolved_pairs),
             "official_events_with_strict_followup": len(official_with_strict_followup),
             "top_blockers": [

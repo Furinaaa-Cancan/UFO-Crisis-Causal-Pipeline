@@ -419,6 +419,32 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(len(rejected), 1)
         self.assertIn("ufo_without_government_context", rejected[0]["reason"])
 
+    def test_base_authenticity_rejects_ufo_generic_government_wording_without_hard_anchor(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        items = [
+            {
+                "source": "Space.com",
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 2,
+                "title": "Government report reignites UFO debate online",
+                "description": "Officials discuss findings in a general commentary article without naming any institution.",
+                "date": today,
+                "published_at": f"{today}T08:00:00+00:00",
+                "date_parsed_ok": True,
+                "url": "https://www.space.com/government-ufo-report-debate",
+                "domain": "space.com",
+            },
+        ]
+        accepted, rejected = scraper.evaluate_base_authenticity(
+            items=items,
+            lookback_days=30,
+            policy=scraper.POLICY_CONFIGS[scraper.POLICY_STRICT_BALANCED],
+        )
+        self.assertEqual(len(accepted), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("ufo_without_hard_government_context", rejected[0]["reason"])
+
     def test_ufo_signature_merge_combines_same_event_across_sources(self):
         items = [
             {
@@ -917,6 +943,100 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(m["metrics"]["official_lead_events"], 1)
         self.assertEqual(m["metrics"]["pair_strict"], 2)
         self.assertTrue(m["gates"]["official_lead_events>=1"])
+
+    def test_official_media_pairs_proxy_without_direct_mirror_stays_proxy_strict(self):
+        items = [
+            {
+                "source": "Pentagon / DoD 新闻稿",
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 3,
+                "title": "Department of Defense Releases UAP Annual Report",
+                "description": "AARO report sent to Congress.",
+                "date": "2024-11-14",
+                "published_at": "2024-11-14T10:00:00+00:00",
+                "url": "https://www.defense.gov/news/release-uap-annual-report/",
+                "domain": "defense.gov",
+                "authenticity": {"final_score": 90},
+            },
+            {
+                "source": "Google News - AARO非人类智慧（补充）",
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 1,
+                "title": "NBC News: Pentagon UAP annual report explained",
+                "description": "Congress reviews AARO report findings.",
+                "date": "2024-11-15",
+                "published_at": "2024-11-15T08:00:00+00:00",
+                "url": "https://news.google.com/rss/articles/example-1",
+                "domain": "news.google.com",
+                "publisher_name": "NBC News",
+                "publisher_url": "https://www.nbcnews.com/world",
+                "publisher_domain": "nbcnews.com",
+                "authenticity": {"final_score": 80, "is_aggregator": True},
+            },
+        ]
+        pairs = scraper.build_official_media_pairs(items)
+        summary = pairs["summary"]
+        self.assertEqual(summary["strict_pairs"], 0)
+        self.assertEqual(summary["proxy_strict_pairs"], 1)
+        self.assertEqual(summary["strict_upgraded_from_proxy_pairs"], 0)
+        self.assertEqual(pairs["pairs"][0]["evidence_tier"], "proxy_strict")
+
+    def test_official_media_pairs_proxy_can_upgrade_when_direct_mirror_exists(self):
+        items = [
+            {
+                "source": "Pentagon / DoD 新闻稿",
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 3,
+                "title": "Department of Defense Releases UAP Annual Report",
+                "description": "AARO report sent to Congress.",
+                "date": "2024-11-14",
+                "published_at": "2024-11-14T10:00:00+00:00",
+                "url": "https://www.defense.gov/news/release-uap-annual-report/",
+                "domain": "defense.gov",
+                "authenticity": {"final_score": 90},
+            },
+            {
+                "source": "Google News - AARO非人类智慧（补充）",
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 1,
+                "title": "NBC News: Pentagon UAP annual report explained",
+                "description": "Congress reviews AARO report findings.",
+                "date": "2024-11-15",
+                "published_at": "2024-11-15T08:00:00+00:00",
+                "url": "https://news.google.com/rss/articles/example-2",
+                "domain": "news.google.com",
+                "publisher_name": "NBC News",
+                "publisher_url": "https://www.nbcnews.com/world",
+                "publisher_domain": "nbcnews.com",
+                "authenticity": {"final_score": 80, "is_aggregator": True},
+            },
+            {
+                "source": "NBC News Science（补充）",
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 2,
+                "title": "Meteor shower lights up night sky",
+                "description": "Astronomy observation roundup.",
+                "date": "2024-11-10",
+                "published_at": "2024-11-10T06:00:00+00:00",
+                "url": "https://www.nbcnews.com/science/space/meteor-shower-night-sky",
+                "domain": "nbcnews.com",
+                "authenticity": {"final_score": 82},
+            },
+        ]
+        pairs = scraper.build_official_media_pairs(items)
+        summary = pairs["summary"]
+        self.assertEqual(summary["strict_pairs"], 1)
+        self.assertEqual(summary["proxy_strict_pairs"], 0)
+        self.assertEqual(summary["strict_upgraded_from_proxy_pairs"], 1)
+        top = pairs["pairs"][0]
+        self.assertEqual(top["evidence_tier"], "strict")
+        self.assertTrue(top["strict_upgraded_from_proxy"])
+        self.assertTrue(top["media_publisher_mirror_in_direct_sources"])
 
     def test_historical_mechanism_summary_uses_us_cases_only(self):
         events_v2 = {

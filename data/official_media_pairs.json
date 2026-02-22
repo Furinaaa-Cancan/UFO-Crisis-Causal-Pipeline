@@ -1,23 +1,24 @@
 {
-  "generated_at": "2026-02-22T06:06:43.868816+00:00",
+  "generated_at": "2026-02-22T06:26:43.716710+00:00",
   "summary": {
     "official_items_considered": 2,
-    "media_items_considered": 77,
-    "dropped_low_score_items": 25,
+    "media_items_considered": 54,
+    "dropped_low_score_items": 19,
     "max_lag_days": 30,
     "min_semantic_score": 2,
     "min_base_score": 50,
     "total_pairs": 7,
-    "strict_pairs": 0,
-    "proxy_strict_pairs": 4,
+    "strict_pairs": 1,
+    "proxy_strict_pairs": 3,
     "balanced_pairs": 3,
     "exploratory_pairs": 0,
-    "strict_nonnegative_lag_pairs": 0,
-    "strict_positive_lag_pairs": 0,
-    "strict_with_timestamp_pairs": 0,
+    "strict_nonnegative_lag_pairs": 1,
+    "strict_positive_lag_pairs": 1,
+    "strict_with_timestamp_pairs": 1,
     "proxy_strict_positive_lag_pairs": 2,
+    "strict_upgraded_from_proxy_pairs": 1,
     "pairs_with_resolved_publisher": 7,
-    "official_events_with_strict_followup": 0,
+    "official_events_with_strict_followup": 1,
     "top_blockers": []
   },
   "pairs": [
@@ -48,6 +49,7 @@
       "media_source_type": "rss",
       "media_is_aggregator": true,
       "media_is_aggregator_proxy": true,
+      "media_publisher_mirror_in_direct_sources": true,
       "lag_days": 5,
       "lag_hours": 110.967,
       "lead_nonnegative": true,
@@ -58,7 +60,49 @@
         "same_topic",
         "same_actor"
       ],
-      "evidence_tier": "proxy_strict"
+      "evidence_tier": "strict",
+      "strict_upgraded_from_proxy": true
+    },
+    {
+      "official_event_key": "2024-11-14|act:report|topic:ufo_uap|actor:department of defense",
+      "official_source": "Pentagon / DoD 新闻稿",
+      "official_title": "Department of Defense Releases the Annual Report on Unidentified Anomalous Phenomena (UAP)",
+      "official_date": "2024-11-14",
+      "official_published_at": "2024-11-14T17:02:00+00:00",
+      "official_url": "https://war.gov/News/Releases/Release/Article/3964824/department-of-defense-releases-the-annual-report-on-unidentified-anomalous-phen",
+      "official_domain": "war.gov",
+      "official_score": 100.0,
+      "official_action_tag": "report",
+      "official_topic_tag": "ufo_uap",
+      "official_actor_tag": "department of defense",
+      "media_source": "NBC News",
+      "media_origin_source": "Google News - AARO非人类智慧（补充）",
+      "media_publisher": "NBC News",
+      "media_publisher_url": "https://nbcnews.com/",
+      "media_publisher_domain": "nbcnews.com",
+      "media_title": "Pentagon received hundreds of new UAP reports, but says no evidence of extraterrestrial activity - NBC News",
+      "media_date": "2024-11-15",
+      "media_published_at": "2024-11-15T08:00:00+00:00",
+      "media_url": "https://news.google.com/rss/articles/CBMi1gFBVV95cUxQTVNPVzY4Um55MFhNYWtLYmd5MWdhQ05VSjJlMVlONTNCYXFaakozVko1UzlKLU5zaVZpNXdJVUtUajl5WExaMkl2ZjFINEtGWElYUnh4NEJORmx3a0N5VnMxcFFaWjlSdHUtaWlTd25tWFlXUURuUmhxZDdsLUhxMEZiR0ZUMFNDbHktQ0hCQTFHSUg0M0FJRXNWRkplY21UaWF1cHZIM2IwQkdYNS1rNElnYWpOXzNXMGdPSUJsNHZaZE0tbW90QXhncnh0Tk1IT3B2Mmhn",
+      "media_domain": "nbcnews.com",
+      "media_score": 50.0,
+      "media_weight": 1,
+      "media_source_type": "rss",
+      "media_is_aggregator": true,
+      "media_is_aggregator_proxy": true,
+      "media_publisher_mirror_in_direct_sources": false,
+      "lag_days": 1,
+      "lag_hours": 14.967,
+      "lead_nonnegative": true,
+      "lead_strict_positive": true,
+      "semantic_score": 3,
+      "token_overlap": 1,
+      "semantic_match_reasons": [
+        "same_topic",
+        "same_actor"
+      ],
+      "evidence_tier": "proxy_strict",
+      "strict_upgraded_from_proxy": false
     },
     {
       "official_event_key": "2024-11-14|act:report|topic:ufo_uap|actor:department of defense",
@@ -87,6 +131,7 @@
       "media_source_type": "rss",
       "media_is_aggregator": true,
       "media_is_aggregator_proxy": true,
+      "media_publisher_mirror_in_direct_sources": false,
       "lag_days": 5,
       "lag_hours": 110.967,
       "lead_nonnegative": true,
@@ -97,7 +142,8 @@
         "same_topic",
         "same_actor"
       ],
-      "evidence_tier": "proxy_strict"
+      "evidence_tier": "proxy_strict",
+      "strict_upgraded_from_proxy": false
     },
     {
       "official_event_key": "2024-11-14|act:report|topic:ufo_uap|actor:department of defense",
@@ -126,6 +172,7 @@
       "media_source_type": "rss",
       "media_is_aggregator": true,
       "media_is_aggregator_proxy": true,
+      "media_publisher_mirror_in_direct_sources": false,
       "lag_days": 0,
       "lag_hours": -0.071,
       "lead_nonnegative": false,
@@ -136,46 +183,8 @@
         "same_topic",
         "token_overlap>=3"
       ],
-      "evidence_tier": "proxy_strict"
-    },
-    {
-      "official_event_key": "2024-11-14|act:report|topic:ufo_uap|actor:department of defense",
-      "official_source": "Pentagon / DoD 新闻稿",
-      "official_title": "Department of Defense Releases the Annual Report on Unidentified Anomalous Phenomena (UAP)",
-      "official_date": "2024-11-14",
-      "official_published_at": "2024-11-14T17:02:00+00:00",
-      "official_url": "https://war.gov/News/Releases/Release/Article/3964824/department-of-defense-releases-the-annual-report-on-unidentified-anomalous-phen",
-      "official_domain": "war.gov",
-      "official_score": 100.0,
-      "official_action_tag": "report",
-      "official_topic_tag": "ufo_uap",
-      "official_actor_tag": "department of defense",
-      "media_source": "The Debrief",
-      "media_origin_source": "Google News - AARO非人类智慧（补充）",
-      "media_publisher": "The Debrief",
-      "media_publisher_url": "https://thedebrief.org/",
-      "media_publisher_domain": "thedebrief.org",
-      "media_title": "2024 UAP Annual Report Released in Wake of Congressional Hearing Addressing Claims of U.S. Secret Programs - The Debrief",
-      "media_date": "2024-11-14",
-      "media_published_at": "2024-11-14T08:00:00+00:00",
-      "media_url": "https://news.google.com/rss/articles/CBMiyAFBVV95cUxOM3lpMGVjV1Iwb1BsNWJMR19EeXpid0VYb2xQTnh5TzlEamR3akVrY1BDTzdyV1Q4OWRKUnoyMXJ2WkdpQVlBRUN3TmgwaGM3c3hsdl9Gbjhqa2IzbmhKZnFWLW02QXcyRVFHV3l5aE43LUd5SDRfMHZhVVExRTRHWVFPS3ZRUFpkVXczYXlpWFdlbGR0aUJadDlTY2hqaFc5X0V3bUlpYmtRMG96ZjlwQXlHWm9VR3VlOHcwQXJwRmVpenFiU2hSTQ",
-      "media_domain": "thedebrief.org",
-      "media_score": 50.0,
-      "media_weight": 1,
-      "media_source_type": "rss",
-      "media_is_aggregator": true,
-      "media_is_aggregator_proxy": true,
-      "lag_days": 0,
-      "lag_hours": -9.033,
-      "lead_nonnegative": false,
-      "lead_strict_positive": false,
-      "semantic_score": 3,
-      "token_overlap": 2,
-      "semantic_match_reasons": [
-        "same_topic",
-        "token_overlap>=2"
-      ],
-      "evidence_tier": "proxy_strict"
+      "evidence_tier": "proxy_strict",
+      "strict_upgraded_from_proxy": false
     },
     {
       "official_event_key": "2024-11-14|act:report|topic:ufo_uap|actor:department of defense",
@@ -204,6 +213,7 @@
       "media_source_type": "rss",
       "media_is_aggregator": true,
       "media_is_aggregator_proxy": true,
+      "media_publisher_mirror_in_direct_sources": false,
       "lag_days": 1,
       "lag_hours": 14.967,
       "lead_nonnegative": true,
@@ -213,7 +223,8 @@
       "semantic_match_reasons": [
         "same_topic"
       ],
-      "evidence_tier": "balanced"
+      "evidence_tier": "balanced",
+      "strict_upgraded_from_proxy": false
     },
     {
       "official_event_key": "2024-11-14|act:report|topic:ufo_uap|actor:department of defense",
@@ -242,6 +253,7 @@
       "media_source_type": "rss",
       "media_is_aggregator": true,
       "media_is_aggregator_proxy": true,
+      "media_publisher_mirror_in_direct_sources": false,
       "lag_days": 5,
       "lag_hours": 110.967,
       "lead_nonnegative": true,
@@ -251,7 +263,8 @@
       "semantic_match_reasons": [
         "same_topic"
       ],
-      "evidence_tier": "balanced"
+      "evidence_tier": "balanced",
+      "strict_upgraded_from_proxy": false
     },
     {
       "official_event_key": "2024-11-14|act:report|topic:ufo_uap|actor:department of defense",
@@ -280,6 +293,7 @@
       "media_source_type": "rss",
       "media_is_aggregator": true,
       "media_is_aggregator_proxy": true,
+      "media_publisher_mirror_in_direct_sources": false,
       "lag_days": 0,
       "lag_hours": -9.033,
       "lead_nonnegative": false,
@@ -289,7 +303,8 @@
       "semantic_match_reasons": [
         "same_topic"
       ],
-      "evidence_tier": "balanced"
+      "evidence_tier": "balanced",
+      "strict_upgraded_from_proxy": false
     }
   ]
 }

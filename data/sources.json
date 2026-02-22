@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "新闻来源配置文件 — 多类型、多机构综合覆盖",
-    "last_updated": "2026-02-22-rev9-ufo-direct-space-debrief",
+    "last_updated": "2026-02-22-rev10-ufo-direct-outlets",
     "feed_types": [
       "rss",
       "reddit_json"
@@ -343,6 +343,51 @@
       "category": "ufo",
       "weight": 2,
       "note": "The Debrief 专题媒体（直连非聚合）",
+      "active": true
+    },
+    {
+      "name": "NewsNation（补充直连）",
+      "url": "https://www.newsnationnow.com/feed/",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "NewsNation 直连 feed（含 UAP 听证/访谈报道）",
+      "active": true
+    },
+    {
+      "name": "Military.com（补充直连）",
+      "url": "https://www.military.com/rss.xml",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "Military.com 军事直连 feed（补充国防/UAP 交叉报道）",
+      "active": true
+    },
+    {
+      "name": "The War Zone（补充直连）",
+      "url": "https://www.twz.com/feed",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "The War Zone 直连 feed（历史含 UAP 相关专题）",
+      "active": true
+    },
+    {
+      "name": "Fox News Politics（补充直连）",
+      "url": "http://feeds.foxnews.com/foxnews/politics",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "Fox Politics 直连 feed（补充国会/白宫危机议题）",
+      "active": true
+    },
+    {
+      "name": "NPR Science（补充直连）",
+      "url": "https://feeds.npr.org/1007/rss.xml",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "NPR 科学直连 feed（补充 UAP/航天专题）",
       "active": true
     },
     {

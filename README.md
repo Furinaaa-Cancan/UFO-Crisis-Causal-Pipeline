@@ -288,6 +288,11 @@ python model_event_study.py --policy strict-balanced --permutations 2000 --max-s
 并会额外写出 `data/official_lead_event_candidates.json`，用于逐条审计“为何 official_lead_events 仍为 0”。
 为提升机制识别稳定性，抓取器会优先保留“可解析发布时间（published_at）”的条目，尤其是官方源条目。
 `official_media_pairs.json` 中的 `proxy_strict` 表示“聚合源中可解析 publisher 的强语义配对”，仅作机制诊断，不计入 strict 闸门放行。
+当 `proxy_strict` 同时满足“publisher 在同批次直连媒体源可镜像验证 + 时间戳可解析 + 语义强匹配”时，
+会升级为 `strict`，并在 `official_media_pairs.summary.strict_upgraded_from_proxy_pairs` 计数（审计字段 `strict_upgraded_from_proxy=true`）。
+
+UFO 严格平衡口径新增“硬政府锚点”过滤：仅有 `government/report/official` 这类泛词而无
+`Pentagon/Congress/hearing/AARO` 等锚点时，会触发 `ufo_without_hard_government_context` 拒绝原因。
 
 对应结论等级：
 - `TEMPORAL_ASSOCIATION_ONLY`（仅相关）
