@@ -1931,16 +1931,18 @@ def classify_official_media_pair_tier(media_row, semantic_score):
     return "exploratory"
 
 
-def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min_base_score=55):
+def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min_base_score=50):
     official_rows = []
     media_rows = []
     dropped_low_score = 0
 
     for item in items:
-        if item.get("category") != "ufo":  # type: ignore
-            continue
         d = parse_iso_date(item.get("date"))  # type: ignore
         if d is None:
+            continue
+        profile = build_ufo_semantic_profile(item)
+        is_ufo_like = bool(item.get("category") == "ufo" or profile.get("topic") != "na")  # type: ignore
+        if not is_ufo_like:
             continue
         auth = item.get("authenticity", {})  # type: ignore
         base_score = float(auth.get("final_score", auth.get("base_score", 0)) or 0.0)  # type: ignore
@@ -1951,7 +1953,6 @@ def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min
         source = str(item.get("source", "") or "")
         is_official = source_is_official(source)
         is_aggregator = source_is_aggregator(source) or bool(auth.get("is_aggregator", False))  # type: ignore
-        profile = build_ufo_semantic_profile(item)
         row = {
             "source": source,
             "source_type": str(item.get("source_type", "") or ""),
