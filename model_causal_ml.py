@@ -304,6 +304,22 @@ def summarize_heterogeneity(tau_hat: List[float]) -> Dict[str, float | None]:
     }
 
 
+def compute_causal_ml_pass(
+    ate_positive: bool,
+    ate_significant: bool,
+    nuisance_model_ready: bool,
+    cate_model_ready: bool,
+    heterogeneity_estimated: bool,
+) -> bool:
+    return (
+        ate_positive
+        and ate_significant
+        and nuisance_model_ready
+        and cate_model_ready
+        and heterogeneity_estimated
+    )
+
+
 def main() -> None:
     args = parse_args()
     rows = load_rows(args.policy)
@@ -334,7 +350,8 @@ def main() -> None:
             "orthogonal_ate": None,
             "orthogonal_att": None,
             "ate_p_value": None,
-            "ate_ci95": None,
+            "ate_interval_note": "ate_placebo_null_ci95 is a placebo/null reference band, not an estimator confidence interval",
+            "ate_placebo_null_ci95": None,
             "null_draws": 0,
             "cate_mean": None,
             "cate_std_proxy": None,
@@ -343,6 +360,8 @@ def main() -> None:
         "gates": {
             "ate_positive": False,
             "ate_significant": False,
+            "nuisance_model_ready": False,
+            "cate_model_ready": False,
             "heterogeneity_estimated": False,
             "causal_ml_passed": False,
         },
@@ -402,7 +421,7 @@ def main() -> None:
                 out["estimation"]["orthogonal_ate"] = round(ate, 6)  # type: ignore
                 out["estimation"]["orthogonal_att"] = round(att, 6)  # type: ignore
                 out["estimation"]["ate_p_value"] = round(p_value, 6)  # type: ignore
-                out["estimation"]["ate_ci95"] = ci  # type: ignore
+                out["estimation"]["ate_placebo_null_ci95"] = ci  # type: ignore
                 out["estimation"]["null_draws"] = len(null)  # type: ignore
                 out["estimation"]["cate_mean"] = round(cate_mean, 6)  # type: ignore
                 out["estimation"]["cate_std_proxy"] = (round(cate_std_proxy, 6) if cate_std_proxy is not None else None)  # type: ignore
@@ -410,15 +429,30 @@ def main() -> None:
 
                 ate_positive = ate > 0
                 ate_significant = p_value < 0.05
-                causal_ml_passed = ate_positive and ate_significant
+                nuisance_model_ready = nuisance_method != "mean_fallback"
+                cate_model_ready = cate_method not in ("constant_cate_fallback", "no_data")
+                causal_ml_passed = compute_causal_ml_pass(
+                    ate_positive=ate_positive,
+                    ate_significant=ate_significant,
+                    nuisance_model_ready=nuisance_model_ready,
+                    cate_model_ready=cate_model_ready,
+                    heterogeneity_estimated=heterogeneity_estimated,
+                )
 
                 out["gates"]["ate_positive"] = ate_positive  # type: ignore
                 out["gates"]["ate_significant"] = ate_significant  # type: ignore
+                out["gates"]["nuisance_model_ready"] = nuisance_model_ready  # type: ignore
+                out["gates"]["cate_model_ready"] = cate_model_ready  # type: ignore
                 out["gates"]["heterogeneity_estimated"] = heterogeneity_estimated  # type: ignore
                 out["gates"]["causal_ml_passed"] = causal_ml_passed  # type: ignore
 
                 out["status"] = "ok"  # type: ignore
-                out["reason"] = "causal_ml_estimated"  # type: ignore
+                if causal_ml_passed:
+                    out["reason"] = "causal_ml_estimated_strict_pass"  # type: ignore
+                elif not (nuisance_model_ready and cate_model_ready):
+                    out["reason"] = "causal_ml_fallback_not_eligible_for_pass"  # type: ignore
+                else:
+                    out["reason"] = "causal_ml_estimated_but_gate_not_met"  # type: ignore
 
     with OUT_FILE.open("w", encoding="utf-8") as f:  # type: ignore
         json.dump(out, f, ensure_ascii=False, indent=2)  # type: ignore

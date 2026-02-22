@@ -58,6 +58,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-missing-streak", type=int, default=7)
     p.add_argument("--min-official-share", type=float, default=0.30)
     p.add_argument("--min-official-lead-events", type=int, default=1)
+    p.add_argument("--min-mechanism-ufo-events", type=int, default=8)
     return p.parse_args()
 
 
@@ -86,6 +87,7 @@ def summarize_mechanism_signals(
     scraped: Dict[str, Any],
     min_official_share: float,
     min_official_lead_events: int,
+    min_ufo_events: int = 3,
 ) -> Dict[str, Any]:
     ufo_events = scraped.get("ufo_news", [])  # type: ignore
     total = len(ufo_events)
@@ -130,7 +132,7 @@ def summarize_mechanism_signals(
 
     official_share = (official_involved / float(total)) if total > 0 else 0.0
     official_primary_share = (official_primary / float(total)) if total > 0 else 0.0
-    enough_ufo_events = total >= 3
+    enough_ufo_events = total >= min_ufo_events
     # Prefer lag-based lead evidence when available; fallback to source-order proxy.
     official_lead_events = (
         official_lead_by_lag_events
@@ -140,7 +142,7 @@ def summarize_mechanism_signals(
     lag_mean = (sum(lag_values) / float(len(lag_values))) if lag_values else None
 
     gates = {
-        "enough_ufo_events_for_mechanism": enough_ufo_events,
+        f"ufo_events>={min_ufo_events}": enough_ufo_events,
         f"official_share>={min_official_share:.2f}": official_share >= min_official_share,
         f"official_lead_events>={min_official_lead_events}": official_lead_events >= min_official_lead_events,
     }
@@ -149,6 +151,7 @@ def summarize_mechanism_signals(
     return {
         "metrics": {
             "ufo_events_total": total,
+            "min_ufo_events_required": min_ufo_events,
             "official_involved_events": official_involved,
             "official_primary_events": official_primary,
             "official_primary_with_media_followup_events": official_primary_with_media_followup,
@@ -387,6 +390,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
         scraped,
         min_official_share=args.min_official_share,
         min_official_lead_events=args.min_official_lead_events,
+        min_ufo_events=args.min_mechanism_ufo_events,
     )
 
     summary: Dict[str, Any] = {  # type: ignore

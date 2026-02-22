@@ -25,6 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent  # type: ignore
 DATA_DIR = BASE_DIR / "data"
 PANEL_FILE = DATA_DIR / "causal_panel.json"
 REPORT_FILE = DATA_DIR / "historical_backfill_report.json"
+REPORT_HISTORY_FILE = DATA_DIR / "historical_backfill_runs.json"
 GDELT_ENDPOINT = "https://api.gdeltproject.org/api/v2/doc/doc"
 REQUEST_TIMEOUT = 120
 REQUEST_RETRIES = 3
@@ -193,6 +194,27 @@ def build_row(
     }
 
 
+def append_report_history(run_report: dict) -> None:
+    payload = {
+        "updated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
+        "runs": [],
+    }
+    if REPORT_HISTORY_FILE.exists():  # type: ignore
+        try:
+            with REPORT_HISTORY_FILE.open("r", encoding="utf-8") as f:  # type: ignore
+                old = json.load(f)  # type: ignore
+            if isinstance(old, dict) and isinstance(old.get("runs"), list):
+                payload["runs"] = old["runs"]  # type: ignore
+        except Exception:
+            payload["runs"] = []
+
+    payload["runs"].append(run_report)  # type: ignore
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat()  # type: ignore
+
+    with REPORT_HISTORY_FILE.open("w", encoding="utf-8") as f:  # type: ignore
+        json.dump(payload, f, ensure_ascii=False, indent=2)  # type: ignore
+
+
 def main() -> None:
     args = parse_args()
     start = parse_date(args.start_date)
@@ -310,7 +332,9 @@ def main() -> None:
     with PANEL_FILE.open("w", encoding="utf-8") as f:  # type: ignore
         json.dump(panel, f, ensure_ascii=False, indent=2)  # type: ignore
 
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report = {
+        "run_id": run_id,
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
         "policy": args.policy,
         "start_date": start.isoformat(),  # type: ignore
@@ -340,6 +364,7 @@ def main() -> None:
     }
     with REPORT_FILE.open("w", encoding="utf-8") as f:  # type: ignore
         json.dump(report, f, ensure_ascii=False, indent=2)  # type: ignore
+    append_report_history(report)
 
     print("=== Historical Backfill Done ===")
     print(f"policy: {args.policy}")
@@ -350,6 +375,7 @@ def main() -> None:
     print(f"failed_chunks_total: {total_failed}")
     print(f"[输出] {PANEL_FILE}")
     print(f"[输出] {REPORT_FILE}")
+    print(f"[输出] {REPORT_HISTORY_FILE}")
 
 
 if __name__ == "__main__":

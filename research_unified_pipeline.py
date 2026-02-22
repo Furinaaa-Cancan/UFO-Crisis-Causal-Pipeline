@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-days", type=int, default=180)
     p.add_argument("--min-shocks", type=int, default=12)
     p.add_argument("--min-observed-ratio", type=float, default=0.85)
-    p.add_argument("--controls-lookback-days", type=int, default=120)
+    p.add_argument("--controls-lookback-days", type=int, default=3650)
     return p.parse_args()
 
 

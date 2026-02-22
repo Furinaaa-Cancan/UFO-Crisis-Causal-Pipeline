@@ -1,10 +1,15 @@
-# 外星人事件关联分析 —— 美国政治危机与UFO新闻的时间关联研究
+# 外星人事件关联分析 —— 美国政治危机与 UFO 新闻时序关系研究
 
 ## 项目简介
 
-本项目系统分析了一个历史规律：**美国每当爆发重大政治丑闻或危机时，往往在数天至数周内，UFO/外星人相关新闻便会大量出现在主流媒体上**。
+本项目研究的核心问题是：**美国政治危机冲击后，UFO/UAP 新闻是否存在可重复的时序上升，并进一步满足因果识别条件**。
 
-这一"转移注意力"模式在媒体研究和政治分析领域被称为 **"Wag the Dog"（摇尾巴的狗）效应**，最早源于1998年克林顿莱温斯基丑闻期间的导弹袭击事件。
+当前代码和报告默认遵循“严格闸门”：
+- 先判定时序相关（temporal association）
+- 再判定因果识别（causal identification）
+- 最后判定机制证据（official-first / media-follow）
+
+截至当前快照（2026-02-22），项目结论口径为：**仅观察到时序相关，尚未通过因果识别闸门**。
 
 ---
 
@@ -50,6 +55,8 @@
     ├── causal_panel.json  # 长期面板（日度累计）
     ├── causal_report.json # 严格审批报告
     ├── panel_progress.json # 门槛进度
+    ├── historical_backfill_report.json # 历史回填最近一次执行报告
+    ├── historical_backfill_runs.json # 历史回填累计运行历史（不可覆盖）
     ├── strict_dual_review.json # strict 双档稳定性评审
     ├── strict_review_snapshot.json # 统一严格评审快照
     ├── model_did_report.json # DID 准实验输出
@@ -248,11 +255,13 @@ python research_unified_pipeline.py --only-policy strict --model-policy strict
 ```bash
 python strict_reviewer.py \
   --expected-policy strict-balanced \
+  --min-mechanism-ufo-events 8 \
   --min-official-share 0.30 \
   --min-official-lead-events 1
 ```
 
 > 注意：模型脚本在样本不足或对照组缺失时会明确返回 `pending/blocked`，不会伪造因果结论。
+> 注意：`model_causal_ml.py` 只有在非 fallback 建模链路（非 `mean_fallback` / 非 `constant_cate_fallback`）且异质性可估时才允许 `causal_ml_passed=true`。
 > 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，
 > 以避免触发国家 RSS 联网抓取，保证离线/复现语义一致。
 
@@ -264,7 +273,7 @@ python strict_reviewer.py \
 
 手动运行：
 ```bash
-python control_panel_builder.py --lookback-days 120
+python control_panel_builder.py --lookback-days 3650
 ```
 
 ### 9. 历史年份样本回填（推荐做法）
@@ -279,6 +288,7 @@ python historical_backfill.py --start-date 2017-01-01 --policy strict
 输出：
 - `data/causal_panel.json`（补充历史日度面板）
 - `data/historical_backfill_report.json`（回填范围、插入量、查询口径）
+- `data/historical_backfill_runs.json`（每次运行历史记录，便于审计失败分段）
 
 说明：
 - 回填默认不覆盖实时抓取行（保护你当天的严格抓取快照）。

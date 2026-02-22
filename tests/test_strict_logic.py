@@ -331,6 +331,31 @@ class TestStrictLogic(unittest.TestCase):
         self.assertGreater(len(dataset), 5)
         self.assertGreaterEqual(treated, 1)
 
+    def test_causal_ml_strict_pass_requires_non_fallback_models(self):
+        passed = model_causal_ml.compute_causal_ml_pass(
+            ate_positive=True,
+            ate_significant=True,
+            nuisance_model_ready=False,
+            cate_model_ready=False,
+            heterogeneity_estimated=False,
+        )
+        self.assertFalse(passed)
+
+        passed2 = model_causal_ml.compute_causal_ml_pass(
+            ate_positive=True,
+            ate_significant=True,
+            nuisance_model_ready=True,
+            cate_model_ready=True,
+            heterogeneity_estimated=True,
+        )
+        self.assertTrue(passed2)
+
+    def test_control_panel_date_grid_is_inclusive(self):
+        start = causal_analyzer.parse_date("2026-01-01")
+        end = causal_analyzer.parse_date("2026-01-03")
+        grid = control_panel_builder.build_date_grid(start, end)
+        self.assertEqual(grid, ["2026-01-01", "2026-01-02", "2026-01-03"])
+
     def test_official_source_detection(self):
         self.assertTrue(strict_reviewer.is_official_source("Pentagon / DoD 新闻稿"))
         self.assertTrue(strict_reviewer.is_official_source("White House 新闻稿"))
@@ -462,6 +487,20 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(row["control_total"], 8)
         self.assertEqual(row["data_source"], historical_backfill.BACKFILL_TAG)
         self.assertEqual(row["date_scope"], "run_day_only")
+
+    def test_historical_backfill_history_is_append_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            history_path = Path(tmp) / "runs.json"
+            old_history = historical_backfill.REPORT_HISTORY_FILE
+            historical_backfill.REPORT_HISTORY_FILE = history_path
+            try:
+                historical_backfill.append_report_history({"run_id": "r1"})
+                historical_backfill.append_report_history({"run_id": "r2"})
+            finally:
+                historical_backfill.REPORT_HISTORY_FILE = old_history
+
+            payload = json.loads(history_path.read_text(encoding="utf-8"))
+            self.assertEqual([x["run_id"] for x in payload["runs"]], ["r1", "r2"])
 
 
 if __name__ == "__main__":
