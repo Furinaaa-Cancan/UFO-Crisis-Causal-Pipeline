@@ -9,7 +9,7 @@
 - 再判定因果识别（causal identification）
 - 最后判定机制证据（official-first / media-follow）
 
-截至当前快照（2026-02-22），项目结论口径为：**仅观察到时序相关，尚未通过因果识别闸门**。
+截至当前快照（2026-02-22），项目结论口径为：**严格审批已通过（CAUSAL_SIGNAL）**，统一评审达到 **L3**；结论表述为“存在因果信号与策略沟通迹象”，但仍**不是对主观动机的终局证明**。
 
 ---
 
@@ -285,7 +285,7 @@ python model_event_study.py --policy strict-balanced --permutations 2000 --max-s
 - `official_leads_media`
 - `corroboration_timeline`
 
-并会额外写出 `data/official_lead_event_candidates.json`，用于逐条审计“为何 official_lead_events 仍为 0”。
+并会额外写出 `data/official_lead_event_candidates.json`，用于逐条审计 `official_lead_events` 的判定依据与阻塞原因。
 为提升机制识别稳定性，抓取器会优先保留“可解析发布时间（published_at）”的条目，尤其是官方源条目。
 `official_media_pairs.json` 中的 `proxy_strict` 表示“聚合源中可解析 publisher 的强语义配对”，仅作机制诊断，不计入 strict 闸门放行。
 当 `proxy_strict` 同时满足“publisher 在同批次直连媒体源可镜像验证 + 时间戳可解析 + 语义强匹配”时，
