@@ -94,6 +94,7 @@
 - House Oversight / House Intelligence
 - Senate Intelligence / Senate HSGAC
 - NBC (`politics` / `us-news` / `science`) 直连非聚合 feed（补媒体侧样本）
+- Space.com UFO 标签 feed（历史回溯到 2021）+ The Debrief 直连源
 - 官方分页窗口（`paged_url_template`）用于扩大时间跨度
 
 ---
@@ -409,6 +410,8 @@ python -m unittest discover -s tests -p 'test_*.py'
 - 关联匹配启用限额：每个危机最多匹配少量高分UFO事件，每个UFO事件也限制复用次数
 - 危机事件必须满足“标题级危机/官方动作信号”（如 indictment/impeach/scandal/supreme court ruling 等），仅在摘要命中不通过
 - 危机事件标题需出现国家级政治行为体（如 president/white house/congress/doj/trump/biden）
+- UFO 事件在 strict/strict-balanced 下必须命中“强UFO信号”（如 `ufo/uap/aaro/ufo hearing`），`alien` 单词不再单独放行
+- UFO 事件在 strict/strict-balanced 下还需满足政府语境（如 white house/pentagon/congress/hearing/disclosure/report 等），以剔除娱乐/科普噪声
 - 评论/专栏与混合串联标题（如 `... And, ...`）会被直接剔除
 
 ---

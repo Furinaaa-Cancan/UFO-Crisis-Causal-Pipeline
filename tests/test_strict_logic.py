@@ -367,6 +367,58 @@ class TestStrictLogic(unittest.TestCase):
         nhi_text = "Trump said UFO files and alien life disclosures will be released."
         self.assertEqual(scraper.infer_ufo_topic_tag(nhi_text), "ufo_uap")
 
+    def test_base_authenticity_rejects_astrobiology_alien_noise_in_strict_balanced(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        items = [
+            {
+                "source": "Space.com",
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 2,
+                "title": "Thousands of alien plant species found in deep ocean simulation",
+                "description": "A biology study on alien-like ecosystems in extreme environments.",
+                "date": today,
+                "published_at": f"{today}T10:00:00+00:00",
+                "date_parsed_ok": True,
+                "url": "https://www.space.com/alien-plant-species-study",
+                "domain": "space.com",
+            },
+        ]
+        accepted, rejected = scraper.evaluate_base_authenticity(
+            items=items,
+            lookback_days=30,
+            policy=scraper.POLICY_CONFIGS[scraper.POLICY_STRICT_BALANCED],
+        )
+        self.assertEqual(len(accepted), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("ufo_without_strong_signal", rejected[0]["reason"])
+
+    def test_base_authenticity_rejects_ufo_entertainment_without_government_context(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        items = [
+            {
+                "source": "NBC News Science（补充）",
+                "source_type": "rss",
+                "category": "ufo",
+                "weight": 2,
+                "title": "Watch the trailer for new UFO documentary series",
+                "description": "The streaming series follows a filmmaker interviewing witnesses.",
+                "date": today,
+                "published_at": f"{today}T09:00:00+00:00",
+                "date_parsed_ok": True,
+                "url": "https://www.nbcnews.com/science/ufo-documentary-series-trailer",
+                "domain": "nbcnews.com",
+            },
+        ]
+        accepted, rejected = scraper.evaluate_base_authenticity(
+            items=items,
+            lookback_days=30,
+            policy=scraper.POLICY_CONFIGS[scraper.POLICY_STRICT_BALANCED],
+        )
+        self.assertEqual(len(accepted), 0)
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("ufo_without_government_context", rejected[0]["reason"])
+
     def test_ufo_signature_merge_combines_same_event_across_sources(self):
         items = [
             {

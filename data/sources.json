@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "新闻来源配置文件 — 多类型、多机构综合覆盖",
-    "last_updated": "2026-02-22-rev8-official-plus-direct-nbc",
+    "last_updated": "2026-02-22-rev9-ufo-direct-space-debrief",
     "feed_types": [
       "rss",
       "reddit_json"
@@ -116,12 +116,16 @@
     },
     {
       "name": "Space.com",
-      "url": "https://www.space.com/feeds/all",
+      "url": "https://www.space.com/feeds/tag/ufo",
       "type": "rss",
       "category": "ufo",
       "weight": 2,
-      "note": "Space.com — UAP/UFO专项科学报道",
-      "active": true
+      "note": "Space.com — UFO 标签专题 feed（历史可回溯到 2021）",
+      "active": true,
+      "fallback_urls": [
+        "https://www.space.com/feeds/tag/uap",
+        "https://www.space.com/feeds/all"
+      ]
     },
     {
       "name": "Defense One",
@@ -330,6 +334,15 @@
       "category": "ufo",
       "weight": 2,
       "note": "NBC 科学频道（补充 UAP/航天相关媒体线索）",
+      "active": true
+    },
+    {
+      "name": "The Debrief（补充）",
+      "url": "https://thedebrief.org/feed/",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "The Debrief 专题媒体（直连非聚合）",
       "active": true
     },
     {

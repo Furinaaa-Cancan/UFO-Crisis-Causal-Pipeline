@@ -142,6 +142,45 @@ UFO_EVENT_TOPIC_KEYWORDS = [
     "crash retrieval",
     "aaro",
 ]
+UFO_STRONG_SIGNAL_KEYWORDS = [
+    "ufo",
+    "ufos",
+    "uap",
+    "uaps",
+    "ufo hearing",
+    "uap hearing",
+    "unidentified anomalous",
+    "unidentified aerial",
+    "unidentified flying",
+    "ufo files",
+    "uap task force",
+    "aaro",
+    "aatip",
+    "tic tac ufo",
+    "gimbal ufo",
+    "go fast ufo",
+    "non-human intelligence",
+]
+UFO_GOVERNANCE_KEYWORDS = [
+    "white house",
+    "pentagon",
+    "department of defense",
+    "dod",
+    "congress",
+    "senate",
+    "house",
+    "committee",
+    "hearing",
+    "testimony",
+    "briefing",
+    "declassify",
+    "disclosure",
+    "report",
+    "uap task force",
+    "aaro",
+    "government",
+    "official",
+]
 UFO_ACTOR_KEYWORDS = [
     "trump",
     "biden",
@@ -286,6 +325,8 @@ POLICY_CONFIGS = {
         "strict_source_rules": True,
         "require_crisis_national_context": True,
         "require_crisis_hard_signal": True,
+        "require_ufo_strong_signal": True,
+        "require_ufo_government_context": True,
     },
     POLICY_STRICT_BALANCED: {
         "min_score": 55,
@@ -297,6 +338,8 @@ POLICY_CONFIGS = {
         "strict_source_rules": True,
         "require_crisis_national_context": True,
         "require_crisis_hard_signal": False,
+        "require_ufo_strong_signal": True,
+        "require_ufo_government_context": True,
     },
     POLICY_LENIENT: {
         "min_score": LENIENT_MIN_SCORE,
@@ -308,6 +351,8 @@ POLICY_CONFIGS = {
         "strict_source_rules": False,
         "require_crisis_national_context": False,
         "require_crisis_hard_signal": False,
+        "require_ufo_strong_signal": False,
+        "require_ufo_government_context": False,
     },
 }
 
@@ -1211,6 +1256,8 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         ufo_signal_hits = list(ufo_core_hits)
         if ufo_core_hits and ufo_ambiguous_hits:
             ufo_signal_hits.extend([kw for kw in ufo_ambiguous_hits if kw not in ufo_signal_hits])
+        ufo_strong_hits = keyword_hits(text, UFO_STRONG_SIGNAL_KEYWORDS)
+        ufo_government_hits = keyword_hits(text, UFO_GOVERNANCE_KEYWORDS)
         crisis_hits = keyword_hits(text, CRISIS_KEYWORDS)
         hard_crisis_hits = keyword_hits(text, CRISIS_HARD_SIGNAL_KEYWORDS)
         official_action_hits = keyword_hits(text, OFFICIAL_ACTION_KEYWORDS)
@@ -1220,6 +1267,7 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         title_ufo_signal_hits = list(title_ufo_core_hits)
         if title_ufo_core_hits and title_ufo_ambiguous_hits:
             title_ufo_signal_hits.extend([kw for kw in title_ufo_ambiguous_hits if kw not in title_ufo_signal_hits])
+        title_ufo_strong_hits = keyword_hits(title.lower(), UFO_STRONG_SIGNAL_KEYWORDS)
         title_crisis_hits = keyword_hits(title.lower(), CRISIS_KEYWORDS)
         title_hard_crisis_hits = keyword_hits(title.lower(), CRISIS_HARD_SIGNAL_KEYWORDS)
         title_official_action_hits = keyword_hits(title.lower(), OFFICIAL_ACTION_KEYWORDS)
@@ -1243,12 +1291,15 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         item["ufo_keywords"] = ufo_hits[:12]  # type: ignore
         item["ufo_core_keywords"] = ufo_core_hits[:12]  # type: ignore
         item["ufo_ambiguous_keywords"] = ufo_ambiguous_hits[:12]  # type: ignore
+        item["ufo_strong_keywords"] = ufo_strong_hits[:12]  # type: ignore
+        item["ufo_government_keywords"] = ufo_government_hits[:12]  # type: ignore
         item["crisis_keywords"] = crisis_hits[:12]  # type: ignore
         item["hard_crisis_keywords"] = hard_crisis_hits[:12]  # type: ignore
         item["official_action_keywords"] = official_action_hits[:12]  # type: ignore
         item["title_ufo_keywords"] = title_ufo_hits[:12]  # type: ignore
         item["title_ufo_core_keywords"] = title_ufo_core_hits[:12]  # type: ignore
         item["title_ufo_ambiguous_keywords"] = title_ufo_ambiguous_hits[:12]  # type: ignore
+        item["title_ufo_strong_keywords"] = title_ufo_strong_hits[:12]  # type: ignore
         item["title_crisis_keywords"] = title_crisis_hits[:12]  # type: ignore
         item["title_hard_crisis_keywords"] = title_hard_crisis_hits[:12]  # type: ignore
         item["title_official_action_keywords"] = title_official_action_hits[:12]  # type: ignore
@@ -1363,8 +1414,12 @@ def evaluate_base_authenticity(items, lookback_days, policy):
                 hard_reasons.append("crisis_hard_signal_only_in_description")
 
         if final_category == "ufo":
-            if policy["enforce_ufo_title_signal"] and not title_ufo_signal_hits:  # type: ignore
+            if policy["enforce_ufo_title_signal"] and not title_ufo_strong_hits:  # type: ignore
                 hard_reasons.append("ufo_signal_only_in_description")
+            if policy.get("require_ufo_strong_signal", False) and not ufo_strong_hits and not is_official:  # type: ignore
+                hard_reasons.append("ufo_without_strong_signal")
+            if policy.get("require_ufo_government_context", False) and not ufo_government_hits and not is_official:  # type: ignore
+                hard_reasons.append("ufo_without_government_context")
 
         item["authenticity"] = {  # type: ignore
             "base_score": max(0, score),
