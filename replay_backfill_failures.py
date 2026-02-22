@@ -39,6 +39,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--last-n-runs", type=int, default=1, help="未指定 run-id 时，回放最近 N 个失败 runs")
     p.add_argument("--queries", default="", help="只回放这些查询（逗号分隔）；为空表示按 run 中失败查询")
     p.add_argument("--max-chunks", type=int, default=0, help="最多回放多少个失败分段（0=不限）")
+    p.add_argument("--failure-cooldown-hours", type=float, default=6.0, help="失败/部分成功分段的冷却时长（小时）")
     p.add_argument("--slice-days", type=int, default=0, help="将失败分段切成固定天数小窗口重放（0=不切）")
     p.add_argument(
         "--schedule-order",
@@ -73,6 +74,33 @@ def load_runs(path: Path) -> List[dict]:
     if not isinstance(runs, list):
         raise ValueError("invalid history format: 'runs' must be list")
     return runs
+
+
+def load_replay_runs(path: Path) -> List[dict]:
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception:
+        return []
+    runs = payload.get("runs", []) if isinstance(payload, dict) else []
+    return runs if isinstance(runs, list) else []
+
+
+def _parse_iso_ts(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        ts = datetime.fromisoformat(raw)
+    except Exception:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
 
 
 def parse_query_subset(raw: str) -> set[str]:
@@ -168,6 +196,90 @@ def collect_failed_jobs(
     return jobs
 
 
+def filter_jobs_by_replay_history(
+    jobs: List[dict],
+    replay_runs: List[dict],
+    failure_cooldown_hours: float,
+) -> tuple[List[dict], List[dict]]:
+    latest_by_key = {}
+    for run in replay_runs:
+        run_ts = _parse_iso_ts(str(run.get("generated_at", "")))
+        if run_ts is None:
+            run_ts = _parse_iso_ts(str(run.get("updated_at", "")))
+        if run_ts is None:
+            continue
+        for job in (run.get("jobs", []) if isinstance(run.get("jobs", []), list) else []):
+            key = (
+                str(job.get("query", "")),
+                str(job.get("start", "")),
+                str(job.get("end", "")),
+                str(job.get("policy", "")),
+            )
+            if not all(key):
+                continue
+            prev = latest_by_key.get(key)
+            if prev is None or run_ts > prev["ts"]:
+                latest_by_key[key] = {
+                    "ts": run_ts,
+                    "status": str(job.get("status", "")),
+                    "source_run_id": str(job.get("source_run_id", "")),
+                }
+
+    now_utc = datetime.now(timezone.utc)
+    cooldown = max(0.0, float(failure_cooldown_hours))
+    filtered: List[dict] = []
+    skipped: List[dict] = []
+    for job in jobs:
+        key = (
+            str(job.get("query", "")),
+            str(job.get("start", "")),
+            str(job.get("end", "")),
+            str(job.get("policy", "")),
+        )
+        hist = latest_by_key.get(key)
+        if hist is None:
+            filtered.append(job)
+            continue
+
+        status = str(hist.get("status", ""))
+        ts = hist.get("ts")
+        age_h = (now_utc - ts).total_seconds() / 3600.0 if isinstance(ts, datetime) else 999999.0
+
+        if status == "full_success":
+            skipped.append(
+                {
+                    "query": key[0],
+                    "start": key[1],
+                    "end": key[2],
+                    "policy": key[3],
+                    "reason": "already_full_success",
+                    "last_status": status,
+                    "last_age_hours": round(age_h, 3),
+                    "source_run_id": str(hist.get("source_run_id", "")),
+                }
+            )
+            continue
+
+        if status in ("partial_success", "failed") and age_h < cooldown:
+            skipped.append(
+                {
+                    "query": key[0],
+                    "start": key[1],
+                    "end": key[2],
+                    "policy": key[3],
+                    "reason": "cooldown_active",
+                    "last_status": status,
+                    "last_age_hours": round(age_h, 3),
+                    "source_run_id": str(hist.get("source_run_id", "")),
+                }
+            )
+            continue
+
+        filtered.append(job)
+
+    return filtered, skipped
+
+
 def append_report_history(path: Path, run_report: dict) -> None:
     payload = {"updated_at": datetime.now(timezone.utc).isoformat(), "runs": []}
     if path.exists():
@@ -248,14 +360,20 @@ def main() -> None:
     report_history_path = Path(args.report_history_file)
 
     runs = load_runs(history_path)
+    replay_runs = load_replay_runs(report_history_path)
     selected_runs = select_runs_for_replay(runs, args.run_id.strip(), args.last_n_runs)
     selected_queries = parse_query_subset(args.queries)
-    jobs = collect_failed_jobs(
+    raw_jobs = collect_failed_jobs(
         selected_runs=selected_runs,
         selected_queries=selected_queries,
         max_chunks=args.max_chunks,
         slice_days=args.slice_days,
         schedule_order=args.schedule_order,
+    )
+    jobs, skipped_history = filter_jobs_by_replay_history(
+        jobs=raw_jobs,
+        replay_runs=replay_runs,
+        failure_cooldown_hours=args.failure_cooldown_hours,
     )
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -265,9 +383,13 @@ def main() -> None:
         "history_file": str(history_path),
         "selected_run_ids": [str(r.get("run_id", "")) for r in selected_runs],
         "selected_queries": sorted(selected_queries),
+        "failure_cooldown_hours": float(args.failure_cooldown_hours),
         "slice_days": int(args.slice_days),
         "schedule_order": str(args.schedule_order),
+        "jobs_total_before_history_filter": len(raw_jobs),
         "jobs_total": len(jobs),
+        "skipped_by_history": len(skipped_history),
+        "skipped_jobs": skipped_history,
         "jobs": [],
         "stats": {
             "executed": 0,
@@ -285,7 +407,9 @@ def main() -> None:
         append_report_history(report_history_path, replay_report)
         print("=== Replay Backfill Failures ===")
         print("jobs_total: 0")
-        print("note: no_failed_chunks_found")
+        print(f"jobs_total_before_history_filter: {replay_report['jobs_total_before_history_filter']}")
+        print(f"skipped_by_history: {replay_report['skipped_by_history']}")
+        print("note: no_failed_chunks_found_or_all_skipped_by_history")
         print(f"[输出] {report_path}")
         print(f"[输出] {report_history_path}")
         return
@@ -346,7 +470,9 @@ def main() -> None:
     append_report_history(report_history_path, replay_report)
 
     print("=== Replay Backfill Failures ===")
+    print(f"jobs_total_before_history_filter: {replay_report['jobs_total_before_history_filter']}")
     print(f"jobs_total: {replay_report['jobs_total']}")
+    print(f"skipped_by_history: {replay_report['skipped_by_history']}")
     print(f"executed: {replay_report['stats']['executed']}")
     print(f"full_success: {replay_report['stats']['full_success']}")
     print(f"partial_success: {replay_report['stats']['partial_success']}")

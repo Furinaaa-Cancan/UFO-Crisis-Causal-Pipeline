@@ -1,7 +1,7 @@
 import unittest
 import json
 import tempfile
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import causal_analyzer
@@ -690,6 +690,41 @@ class TestStrictLogic(unittest.TestCase):
             replay_backfill_failures.derive_job_status(1, {"failed_chunks_total": 0}),
             "failed",
         )
+
+    def test_replay_filter_jobs_by_replay_history(self):
+        now_iso = datetime.now(timezone.utc).isoformat()
+        old_iso = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        jobs = [
+            {"query": "ufo", "start": "1990-01-01", "end": "1990-01-01", "policy": "strict-balanced"},
+            {"query": "ufo", "start": "1990-01-02", "end": "1990-01-02", "policy": "strict-balanced"},
+            {"query": "ufo", "start": "1990-01-03", "end": "1990-01-03", "policy": "strict-balanced"},
+        ]
+        replay_runs = [
+            {
+                "generated_at": now_iso,
+                "jobs": [
+                    {"query": "ufo", "start": "1990-01-01", "end": "1990-01-01", "policy": "strict-balanced", "status": "partial_success"},
+                    {"query": "ufo", "start": "1990-01-02", "end": "1990-01-02", "policy": "strict-balanced", "status": "full_success"},
+                ],
+            },
+            {
+                "generated_at": old_iso,
+                "jobs": [
+                    {"query": "ufo", "start": "1990-01-03", "end": "1990-01-03", "policy": "strict-balanced", "status": "partial_success"},
+                ],
+            },
+        ]
+        kept, skipped = replay_backfill_failures.filter_jobs_by_replay_history(
+            jobs=jobs,
+            replay_runs=replay_runs,
+            failure_cooldown_hours=6.0,
+        )
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["start"], "1990-01-03")
+        self.assertEqual(len(skipped), 2)
+        reasons = {x["reason"] for x in skipped}
+        self.assertIn("cooldown_active", reasons)
+        self.assertIn("already_full_success", reasons)
 
 
 if __name__ == "__main__":

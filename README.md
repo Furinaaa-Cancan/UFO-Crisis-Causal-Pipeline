@@ -321,6 +321,9 @@ python replay_backfill_failures.py --last-n-runs 1 --queries ufo,crisis --max-ch
 
 # 先切成 7 天小窗口，并优先回放短窗口（更容易在限流窗口下成功）
 python replay_backfill_failures.py --last-n-runs 3 --queries ufo,crisis --slice-days 7 --schedule-order shortest --max-chunks 10 --allow-partial --overwrite-backfill --verbose-chunks
+
+# 失败冷却窗口：6 小时内失败/部分成功分段自动跳过，避免重复撞限流
+python replay_backfill_failures.py --last-n-runs 3 --queries ufo,crisis --slice-days 7 --failure-cooldown-hours 6 --max-chunks 20 --allow-partial --overwrite-backfill --verbose-chunks
 ```
 
 ### 9. 逻辑回归测试
