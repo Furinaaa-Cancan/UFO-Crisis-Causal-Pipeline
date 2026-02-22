@@ -13,7 +13,7 @@ import argparse
 import json
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List
 
@@ -39,6 +39,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--last-n-runs", type=int, default=1, help="未指定 run-id 时，回放最近 N 个失败 runs")
     p.add_argument("--queries", default="", help="只回放这些查询（逗号分隔）；为空表示按 run 中失败查询")
     p.add_argument("--max-chunks", type=int, default=0, help="最多回放多少个失败分段（0=不限）")
+    p.add_argument("--slice-days", type=int, default=0, help="将失败分段切成固定天数小窗口重放（0=不切）")
+    p.add_argument(
+        "--schedule-order",
+        choices=["shortest", "longest", "none"],
+        default="shortest",
+        help="重放任务调度顺序：shortest 先跑短窗口，longest 先跑长窗口，none 保持字典序",
+    )
     p.add_argument("--policy", default="", help="强制覆盖 policy；为空则沿用 run 的 policy")
     p.add_argument("--python-bin", default=str(PYTHON_BIN), help="用于调用 historical_backfill.py 的 Python 可执行文件")
     p.add_argument("--allow-partial", action="store_true", help="允许分段失败时继续")
@@ -91,7 +98,25 @@ def collect_failed_jobs(
     selected_runs: List[dict],
     selected_queries: set[str],
     max_chunks: int,
+    slice_days: int,
+    schedule_order: str,
 ) -> List[dict]:
+    def split_range(start_iso: str, end_iso: str) -> List[tuple[str, str]]:
+        s = parse_date(start_iso)
+        e = parse_date(end_iso)
+        if s > e:
+            return []
+        size = max(0, int(slice_days))
+        if size <= 0:
+            return [(s.isoformat(), e.isoformat())]
+        out: List[tuple[str, str]] = []
+        cur = s
+        while cur <= e:
+            chunk_end = min(e, cur + timedelta(days=max(1, size) - 1))  # type: ignore
+            out.append((cur.isoformat(), chunk_end.isoformat()))  # type: ignore
+            cur = chunk_end + timedelta(days=1)  # type: ignore
+        return out
+
     jobs: List[dict] = []
     seen = set()
     for run in selected_runs:
@@ -112,27 +137,32 @@ def collect_failed_jobs(
                 if not start or not end:
                     continue
                 try:
-                    s = parse_date(start)
-                    e = parse_date(end)
+                    ranges = split_range(start, end)
                 except Exception:
                     continue
-                if s > e:
-                    continue
-                key = (query, s.isoformat(), e.isoformat())
-                if key in seen:
-                    continue
-                seen.add(key)
-                jobs.append(
-                    {
-                        "query": query,
-                        "start": s.isoformat(),
-                        "end": e.isoformat(),
-                        "source_run_id": run_id,
-                        "policy": policy,
-                    }
-                )
+                for s_iso, e_iso in ranges:
+                    key = (query, s_iso, e_iso)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    span_days = (parse_date(e_iso) - parse_date(s_iso)).days + 1
+                    jobs.append(
+                        {
+                            "query": query,
+                            "start": s_iso,
+                            "end": e_iso,
+                            "span_days": int(span_days),
+                            "source_run_id": run_id,
+                            "policy": policy,
+                        }
+                    )
 
-    jobs.sort(key=lambda x: (x["query"], x["start"], x["end"]))  # type: ignore
+    if schedule_order == "shortest":
+        jobs.sort(key=lambda x: (int(x.get("span_days", 0)), x["query"], x["start"], x["end"]))  # type: ignore
+    elif schedule_order == "longest":
+        jobs.sort(key=lambda x: (-int(x.get("span_days", 0)), x["query"], x["start"], x["end"]))  # type: ignore
+    else:
+        jobs.sort(key=lambda x: (x["query"], x["start"], x["end"]))  # type: ignore
     if max_chunks > 0:
         jobs = jobs[: max_chunks]
     return jobs
@@ -220,7 +250,13 @@ def main() -> None:
     runs = load_runs(history_path)
     selected_runs = select_runs_for_replay(runs, args.run_id.strip(), args.last_n_runs)
     selected_queries = parse_query_subset(args.queries)
-    jobs = collect_failed_jobs(selected_runs, selected_queries, args.max_chunks)
+    jobs = collect_failed_jobs(
+        selected_runs=selected_runs,
+        selected_queries=selected_queries,
+        max_chunks=args.max_chunks,
+        slice_days=args.slice_days,
+        schedule_order=args.schedule_order,
+    )
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     replay_report = {
@@ -229,6 +265,8 @@ def main() -> None:
         "history_file": str(history_path),
         "selected_run_ids": [str(r.get("run_id", "")) for r in selected_runs],
         "selected_queries": sorted(selected_queries),
+        "slice_days": int(args.slice_days),
+        "schedule_order": str(args.schedule_order),
         "jobs_total": len(jobs),
         "jobs": [],
         "stats": {

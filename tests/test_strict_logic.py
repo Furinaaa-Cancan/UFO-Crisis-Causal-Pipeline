@@ -628,15 +628,54 @@ class TestStrictLogic(unittest.TestCase):
                 },
             },
         ]
-        jobs = replay_backfill_failures.collect_failed_jobs(selected_runs, selected_queries=set(), max_chunks=0)
+        jobs = replay_backfill_failures.collect_failed_jobs(
+            selected_runs=selected_runs,
+            selected_queries=set(),
+            max_chunks=0,
+            slice_days=0,
+            schedule_order="none",
+        )
         self.assertEqual(len(jobs), 3)
         self.assertEqual(jobs[0]["query"], "crisis")
         self.assertEqual(jobs[1]["query"], "ufo")
         self.assertEqual(jobs[2]["query"], "ufo")
 
-        jobs2 = replay_backfill_failures.collect_failed_jobs(selected_runs, selected_queries={"ufo"}, max_chunks=1)
+        jobs2 = replay_backfill_failures.collect_failed_jobs(
+            selected_runs=selected_runs,
+            selected_queries={"ufo"},
+            max_chunks=1,
+            slice_days=0,
+            schedule_order="none",
+        )
         self.assertEqual(len(jobs2), 1)
         self.assertEqual(jobs2[0]["query"], "ufo")
+
+    def test_replay_collect_failed_jobs_with_slicing_and_shortest_order(self):
+        selected_runs = [
+            {
+                "run_id": "r1",
+                "policy": "strict-balanced",
+                "failed_chunks": {
+                    "ufo": [
+                        {"start": "1990-01-01", "end": "1990-01-05", "error": "x"},
+                    ],
+                    "crisis": [
+                        {"start": "1990-01-01", "end": "1990-01-02", "error": "y"},
+                    ],
+                },
+            }
+        ]
+        jobs = replay_backfill_failures.collect_failed_jobs(
+            selected_runs=selected_runs,
+            selected_queries=set(),
+            max_chunks=0,
+            slice_days=2,
+            schedule_order="shortest",
+        )
+        self.assertEqual(len(jobs), 4)
+        self.assertEqual(jobs[0]["span_days"], 1)
+        self.assertEqual(jobs[0]["query"], "ufo")
+        self.assertEqual(jobs[-1]["span_days"], 2)
 
     def test_replay_derive_job_status(self):
         self.assertEqual(

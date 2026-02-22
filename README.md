@@ -318,6 +318,9 @@ python replay_backfill_failures.py --last-n-runs 1 --allow-partial --overwrite-b
 
 # 只回放 UFO/危机，并限制最多 5 个失败分段（先做小批量验证）
 python replay_backfill_failures.py --last-n-runs 1 --queries ufo,crisis --max-chunks 5 --allow-partial --overwrite-backfill --verbose-chunks
+
+# 先切成 7 天小窗口，并优先回放短窗口（更容易在限流窗口下成功）
+python replay_backfill_failures.py --last-n-runs 3 --queries ufo,crisis --slice-days 7 --schedule-order shortest --max-chunks 10 --allow-partial --overwrite-backfill --verbose-chunks
 ```
 
 ### 9. 逻辑回归测试
