@@ -12,9 +12,11 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from email.utils import parsedate_to_datetime
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List
+from xml.etree import ElementTree as ET
 
 import requests  # type: ignore
 
@@ -27,6 +29,7 @@ PANEL_FILE = DATA_DIR / "causal_panel.json"
 REPORT_FILE = DATA_DIR / "historical_backfill_report.json"
 REPORT_HISTORY_FILE = DATA_DIR / "historical_backfill_runs.json"
 GDELT_ENDPOINT = "https://api.gdeltproject.org/api/v2/doc/doc"
+GOOGLE_NEWS_ENDPOINT = "https://news.google.com/rss/search"
 REQUEST_TIMEOUT = 120
 REQUEST_RETRIES = 3
 CHUNK_DAYS = 5000
@@ -34,6 +37,7 @@ PAUSE_BETWEEN_CHUNKS = 5.2
 MIN_SPLIT_DAYS = 90
 RATE_LIMIT_COOLDOWN = 45.0
 RETRY_BACKOFF_MAX = 120.0
+GOOGLE_MAX_SPAN_DAYS = 14
 BACKFILL_TAG = "gdelt_timeline_backfill_v1"
 
 # 查询尽量短，避免语法复杂导致接口波动。
@@ -53,6 +57,14 @@ QUERY_MAP = {
     "control_economy": CTRL_ECONOMY_QUERY,
     "control_security": CTRL_SECURITY_QUERY,
     "control_immigration": CTRL_IMMIGRATION_QUERY,
+}
+
+GOOGLE_QUERY_MAP = {
+    "ufo": '(ufo OR uap OR "unidentified aerial" OR extraterrestrial)',
+    "crisis": '(indictment OR impeach OR scandal OR "special counsel" OR subpoena OR "classified documents" OR corruption OR "federal charges")',
+    "control_economy": "(economy OR inflation OR tariff OR recession OR gdp)",
+    "control_security": "(war OR iran OR russia OR china OR missile OR defense)",
+    "control_immigration": "(immigration OR border OR migrant OR asylum OR deportation)",
 }
 
 
@@ -76,6 +88,13 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=RETRY_BACKOFF_MAX,
         help=f"重试退避最大秒数（默认 {RETRY_BACKOFF_MAX}）",
+    )
+    p.add_argument("--google-fallback", action="store_true", help="GDELT 失败时允许使用 Google News RSS 小窗口补抓")
+    p.add_argument(
+        "--google-max-span-days",
+        type=int,
+        default=GOOGLE_MAX_SPAN_DAYS,
+        help=f"Google RSS 补抓的最大窗口天数（默认 {GOOGLE_MAX_SPAN_DAYS}）",
     )
     p.add_argument("--pause-between-chunks", type=float, default=PAUSE_BETWEEN_CHUNKS, help="分段请求间隔秒数")
     p.add_argument(
@@ -122,6 +141,28 @@ def split_date_range(start: date, end: date) -> tuple[tuple[date, date], tuple[d
     return (start, left_end), (right_start, end)
 
 
+def _build_day_source_map(start: date, end: date, source_name: str) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    cur = start
+    while cur <= end:
+        out[cur.isoformat()] = source_name  # type: ignore
+        cur += timedelta(days=1)  # type: ignore
+    return out
+
+
+def _parse_google_pub_date(value: str) -> date | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = parsedate_to_datetime(raw)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).date()
+
+
 def _compute_retry_sleep_seconds(
     attempt: int,
     is_429: bool,
@@ -133,6 +174,75 @@ def _compute_retry_sleep_seconds(
     if is_429:
         sleep_s = max(float(rate_limit_cooldown), sleep_s)
     return max(0.0, sleep_s)
+
+
+def _fetch_google_news_counts(
+    query_key: str,
+    start: date,
+    end: date,
+    request_timeout: int,
+    request_retries: int,
+    rate_limit_cooldown: float,
+    retry_backoff_max: float,
+    use_env_proxy: bool,
+    verbose_chunks: bool,
+) -> tuple[Dict[str, int], str]:
+    if query_key not in GOOGLE_QUERY_MAP:
+        return {}, f"unknown_query_key={query_key}"
+    # Google RSS 的 before 语法是开区间，这里加 1 天确保覆盖 end 日。
+    query = (
+        f"{GOOGLE_QUERY_MAP[query_key]} "
+        f"after:{start.isoformat()} before:{(end + timedelta(days=1)).isoformat()}"
+    )
+    params = {
+        "q": query,
+        "hl": "en-US",
+        "gl": "US",
+        "ceid": "US:en",
+    }
+    connect_timeout = max(5, min(20, int(request_timeout)))
+    read_timeout = max(5, int(request_timeout))
+    last_err = ""
+    for attempt in range(1, max(1, request_retries) + 1):
+        try:
+            with requests.Session() as session:
+                session.trust_env = bool(use_env_proxy)
+                resp = session.get(
+                    GOOGLE_NEWS_ENDPOINT,
+                    params=params,
+                    timeout=(connect_timeout, read_timeout),
+                )  # type: ignore
+            if resp.status_code == 429:
+                raise requests.HTTPError("429 Too Many Requests", response=resp)
+            resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+
+            out: Dict[str, int] = {}
+            for item in root.findall(".//item"):
+                pub_date = _parse_google_pub_date(item.findtext("pubDate", default=""))  # type: ignore
+                if pub_date is None or pub_date < start or pub_date > end:
+                    continue
+                iso = pub_date.isoformat()  # type: ignore
+                out[iso] = int(out.get(iso, 0) + 1)
+            return out, ""
+        except Exception as e:
+            last_err = f"attempt={attempt}: {e}"
+            is_429 = isinstance(e, requests.HTTPError) and getattr(getattr(e, "response", None), "status_code", None) == 429
+            sleep_s = _compute_retry_sleep_seconds(
+                attempt=attempt,
+                is_429=is_429,
+                rate_limit_cooldown=rate_limit_cooldown,
+                retry_backoff_max=retry_backoff_max,
+            )
+            if verbose_chunks:
+                err_label = "rate_limited_429" if is_429 else "request_error"
+                print(
+                    f"[backfill] google_retry {start.isoformat()} -> {end.isoformat()} key={query_key} "
+                    f"attempt={attempt}/{max(1, request_retries)} sleep={sleep_s:.1f}s type={err_label}",
+                    flush=True,
+                )
+            time.sleep(sleep_s)
+    return {}, last_err or "unknown_error"
 
 
 def _request_timeline_payload(
@@ -230,6 +340,7 @@ def _expand_failed_days(failed: List[dict], lower: date, upper: date) -> set[str
 
 
 def _fetch_chunk_with_split(
+    query_key: str,
     query: str,
     start: date,
     end: date,
@@ -239,9 +350,11 @@ def _fetch_chunk_with_split(
     retry_backoff_max: float,
     pause_between_chunks: float,
     min_split_days: int,
+    google_fallback: bool,
+    google_max_span_days: int,
     use_env_proxy: bool,
     verbose_chunks: bool,
-) -> tuple[Dict[str, int], List[dict]]:
+) -> tuple[Dict[str, int], List[dict], Dict[str, str]]:
     modes = ("TimelineVolRaw", "TimelineVol")
     mode_errors = []
     for mode in modes:
@@ -258,15 +371,43 @@ def _fetch_chunk_with_split(
             verbose_chunks=verbose_chunks,
         )
         if payload is not None:
-            return _parse_timeline_payload(payload), []
+            source_tag = "gdelt_timeline_volraw" if mode == "TimelineVolRaw" else "gdelt_timeline_vol"
+            return _parse_timeline_payload(payload), [], _build_day_source_map(start, end, source_tag)
         mode_errors.append(f"{mode}: {err}")
 
     span_days = (end - start).days + 1
-    if span_days > max(1, int(min_split_days)):
+    split_floor = max(1, int(min_split_days))
+    google_span = max(1, int(google_max_span_days))
+
+    if google_fallback:
+        split_floor = min(split_floor, google_span)
+        if span_days <= google_span:
+            g_counts, g_err = _fetch_google_news_counts(
+                query_key=query_key,
+                start=start,
+                end=end,
+                request_timeout=request_timeout,
+                request_retries=request_retries,
+                rate_limit_cooldown=rate_limit_cooldown,
+                retry_backoff_max=retry_backoff_max,
+                use_env_proxy=use_env_proxy,
+                verbose_chunks=verbose_chunks,
+            )
+            if not g_err:
+                if verbose_chunks:
+                    print(
+                        f"[backfill] google_fallback_used {query_key} {start.isoformat()} -> {end.isoformat()} items_days={len(g_counts)}",
+                        flush=True,
+                    )
+                return g_counts, [], _build_day_source_map(start, end, "google_news_rss")
+            mode_errors.append(f"google_news_rss: {g_err}")
+
+    if span_days > split_floor:
         if verbose_chunks:
             print(f"[backfill] split {start.isoformat()} -> {end.isoformat()} (span_days={span_days})", flush=True)
         (l_start, l_end), (r_start, r_end) = split_date_range(start, end)
-        left_counts, left_failed = _fetch_chunk_with_split(
+        left_counts, left_failed, left_sources = _fetch_chunk_with_split(
+            query_key=query_key,
             query=query,
             start=l_start,
             end=l_end,
@@ -276,11 +417,14 @@ def _fetch_chunk_with_split(
             retry_backoff_max=retry_backoff_max,
             pause_between_chunks=pause_between_chunks,
             min_split_days=min_split_days,
+            google_fallback=google_fallback,
+            google_max_span_days=google_max_span_days,
             use_env_proxy=use_env_proxy,
             verbose_chunks=verbose_chunks,
         )
         time.sleep(max(0.0, pause_between_chunks))
-        right_counts, right_failed = _fetch_chunk_with_split(
+        right_counts, right_failed, right_sources = _fetch_chunk_with_split(
+            query_key=query_key,
             query=query,
             start=r_start,
             end=r_end,
@@ -290,12 +434,18 @@ def _fetch_chunk_with_split(
             retry_backoff_max=retry_backoff_max,
             pause_between_chunks=pause_between_chunks,
             min_split_days=min_split_days,
+            google_fallback=google_fallback,
+            google_max_span_days=google_max_span_days,
             use_env_proxy=use_env_proxy,
             verbose_chunks=verbose_chunks,
         )
-        merged = left_counts
-        merged.update(right_counts)
-        return merged, left_failed + right_failed
+        merged_counts: Dict[str, int] = {}
+        merged_counts.update(left_counts)
+        merged_counts.update(right_counts)
+        merged_sources: Dict[str, str] = {}
+        merged_sources.update(left_sources)
+        merged_sources.update(right_sources)
+        return merged_counts, left_failed + right_failed, merged_sources
 
     if verbose_chunks:
         print(
@@ -306,10 +456,11 @@ def _fetch_chunk_with_split(
         "start": start.isoformat(),  # type: ignore
         "end": end.isoformat(),  # type: ignore
         "error": " | ".join(mode_errors),
-    }]
+    }], {}
 
 
 def fetch_timeline_counts(
+    query_key: str,
     query: str,
     start: date,
     end: date,
@@ -320,17 +471,21 @@ def fetch_timeline_counts(
     retry_backoff_max: float,
     pause_between_chunks: float,
     min_split_days: int,
+    google_fallback: bool,
+    google_max_span_days: int,
     use_env_proxy: bool,
     verbose_chunks: bool,
-) -> tuple[Dict[str, int], List[dict]]:
+) -> tuple[Dict[str, int], List[dict], Dict[str, str]]:
     out: Dict[str, int] = {}
     failed_chunks: List[dict] = []
+    source_days: Dict[str, str] = {}
     cursor = start
     while cursor <= end:
         chunk_end = min(end, cursor + timedelta(days=max(1, chunk_days) - 1))  # type: ignore
         if verbose_chunks:
             print(f"[backfill] chunk {cursor.isoformat()} -> {chunk_end.isoformat()}", flush=True)
-        counts, failed = _fetch_chunk_with_split(
+        counts, failed, chunk_sources = _fetch_chunk_with_split(
+            query_key=query_key,
             query=query,
             start=cursor,
             end=chunk_end,
@@ -340,11 +495,14 @@ def fetch_timeline_counts(
             retry_backoff_max=retry_backoff_max,
             pause_between_chunks=pause_between_chunks,
             min_split_days=min_split_days,
+            google_fallback=google_fallback,
+            google_max_span_days=google_max_span_days,
             use_env_proxy=use_env_proxy,
             verbose_chunks=verbose_chunks,
         )
         out.update(counts)
         failed_chunks.extend(failed)  # type: ignore
+        source_days.update(chunk_sources)
         if verbose_chunks:
             print(
                 f"[backfill] chunk_done {cursor.isoformat()} -> {chunk_end.isoformat()} days={len(counts)} failed={len(failed)}",
@@ -354,7 +512,7 @@ def fetch_timeline_counts(
         time.sleep(max(0.0, pause_between_chunks))
         cursor = chunk_end + timedelta(days=1)  # type: ignore
 
-    return out, failed_chunks
+    return out, failed_chunks, source_days
 
 
 def load_panel() -> dict:
@@ -451,13 +609,15 @@ def main() -> None:
 
     print(f"[backfill] selected queries: {', '.join(selected_queries)}")
     series_map = {k: {} for k in QUERY_MAP}
+    series_source_days = {k: {} for k in QUERY_MAP}
     failed_chunks = {k: [] for k in QUERY_MAP}
     for key in selected_queries:
         print(f"[backfill] fetch {key} timeline: {start.isoformat()} -> {end.isoformat()}")
-        counts, failed = fetch_timeline_counts(
-            QUERY_MAP[key],  # type: ignore
-            start,
-            end,
+        counts, failed, source_days = fetch_timeline_counts(
+            query_key=key,
+            query=QUERY_MAP[key],  # type: ignore
+            start=start,
+            end=end,
             chunk_days=args.chunk_days,
             request_timeout=args.request_timeout,
             request_retries=args.request_retries,
@@ -465,10 +625,13 @@ def main() -> None:
             retry_backoff_max=args.retry_backoff_max,
             pause_between_chunks=args.pause_between_chunks,
             min_split_days=args.min_split_days,
+            google_fallback=args.google_fallback,
+            google_max_span_days=args.google_max_span_days,
             use_env_proxy=args.use_env_proxy,
             verbose_chunks=args.verbose_chunks,
         )
         series_map[key] = counts  # type: ignore
+        series_source_days[key] = source_days  # type: ignore
         failed_chunks[key] = failed  # type: ignore
 
     ufo = series_map["ufo"]  # type: ignore
@@ -480,6 +643,18 @@ def main() -> None:
     total_failed = sum(len(v) for v in failed_chunks.values())  # type: ignore
     if total_failed > 0 and not args.allow_partial:
         raise SystemExit(f"存在失败分段 {total_failed} 个；可加 --allow-partial 继续。")
+
+    source_mode_breakdown_by_query: Dict[str, Dict[str, int]] = {}
+    google_fallback_days_total = 0
+    for key in selected_queries:
+        breakdown: Dict[str, int] = {}
+        for src in series_source_days.get(key, {}).values():  # type: ignore
+            breakdown[src] = int(breakdown.get(src, 0) + 1)
+        source_mode_breakdown_by_query[key] = breakdown
+        google_fallback_days_total += int(breakdown.get("google_news_rss", 0))
+    google_fallback_queries_used = sorted(
+        [k for k, v in source_mode_breakdown_by_query.items() if int(v.get("google_news_rss", 0)) > 0]
+    )
 
     panel = load_panel()
     rows = panel.get("rows", [])  # type: ignore
@@ -564,12 +739,17 @@ def main() -> None:
             "ufo_nonzero_days": sum(1 for v in ufo.values() if v > 0),  # type: ignore
             "crisis_nonzero_days": sum(1 for v in crisis.values() if v > 0),  # type: ignore
             "failed_chunks_total": total_failed,
+            "google_fallback_enabled": bool(args.google_fallback),
+            "google_fallback_days_total": int(google_fallback_days_total),
+            "google_fallback_queries_used": google_fallback_queries_used,
+            "source_mode_breakdown_by_query": source_mode_breakdown_by_query,
         },
         "failed_chunks": failed_chunks,
         "notes": [
             "本回填基于 GDELT 日度计数，适用于样本量扩充与稳健性分析，不替代事件级人工核查。",
             "默认不覆盖实时抓取行（非 backfill 数据源）。",
             "失败分段会按缺失观测跳过，不会以零值写入面板。",
+            "启用 --google-fallback 时，GDELT 失败小窗口可由 Google News RSS 补抓。",
         ],
     }
     with REPORT_FILE.open("w", encoding="utf-8") as f:  # type: ignore
@@ -584,6 +764,8 @@ def main() -> None:
     print(f"skipped_all_zero_days: {skipped_empty}")
     print(f"skipped_failed_days: {skipped_failed}")
     print(f"failed_chunks_total: {total_failed}")
+    print(f"google_fallback_enabled: {bool(args.google_fallback)}")
+    print(f"google_fallback_days_total: {int(google_fallback_days_total)}")
     print(f"[输出] {PANEL_FILE}")
     print(f"[输出] {REPORT_FILE}")
     print(f"[输出] {REPORT_HISTORY_FILE}")

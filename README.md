@@ -298,6 +298,9 @@ python historical_backfill.py --start-date 1990-01-01 --end-date 1999-12-31 --qu
 
 # 若网络层不稳定：打开分段日志，缩短超时并减少重试（默认禁用系统代理）
 python -u historical_backfill.py --start-date 1980-01-01 --end-date 1981-12-31 --queries ufo,crisis --allow-partial --chunk-days 365 --request-timeout 20 --request-retries 2 --rate-limit-cooldown 60 --retry-backoff-max 180 --verbose-chunks
+
+# 启用第二数据源补抓：GDELT 失败的小窗口自动尝试 Google News RSS
+python -u historical_backfill.py --start-date 2002-01-01 --end-date 2002-01-31 --queries ufo,crisis --allow-partial --google-fallback --google-max-span-days 14 --verbose-chunks
 ```
 输出：
 - `data/causal_panel.json`（补充历史日度面板）
@@ -310,6 +313,7 @@ python -u historical_backfill.py --start-date 1980-01-01 --end-date 1981-12-31 -
 - 回填默认不覆盖实时抓取行（保护你当天的严格抓取快照）。
 - 回填数据用于样本扩充与稳健性检验，不替代事件级人工核查。
 - 分段失败日会按“缺失观测”跳过，不会被写成 0（避免伪零值污染因果分析）。
+- 打开 `--google-fallback` 后，会在 `historical_backfill_report.json.stats.source_mode_breakdown_by_query` 记录每个 query 的来源覆盖（日粒度）。
 
 失败分段自动重放（按历史 runs 里的 failed_chunks 自动续跑）：
 ```bash
@@ -324,6 +328,9 @@ python replay_backfill_failures.py --last-n-runs 3 --queries ufo,crisis --slice-
 
 # 失败冷却窗口：6 小时内失败/部分成功分段自动跳过，避免重复撞限流
 python replay_backfill_failures.py --last-n-runs 3 --queries ufo,crisis --slice-days 7 --failure-cooldown-hours 6 --max-chunks 20 --allow-partial --overwrite-backfill --verbose-chunks
+
+# 重放时也开启第二数据源补抓（与历史回填参数保持一致）
+python replay_backfill_failures.py --last-n-runs 3 --queries ufo,crisis --slice-days 7 --max-chunks 20 --failure-cooldown-hours 6 --google-fallback --google-max-span-days 14 --allow-partial --overwrite-backfill --verbose-chunks
 ```
 
 ### 9. 逻辑回归测试

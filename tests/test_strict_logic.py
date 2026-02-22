@@ -590,6 +590,20 @@ class TestStrictLogic(unittest.TestCase):
         )
         self.assertAlmostEqual(s2, 60.0, places=5)
 
+    def test_historical_backfill_build_day_source_map_inclusive(self):
+        s = causal_analyzer.parse_date("1990-01-01")
+        e = causal_analyzer.parse_date("1990-01-03")
+        m = historical_backfill._build_day_source_map(s, e, "gdelt_timeline_volraw")
+        self.assertEqual(len(m), 3)
+        self.assertEqual(m["1990-01-01"], "gdelt_timeline_volraw")
+        self.assertEqual(m["1990-01-03"], "gdelt_timeline_volraw")
+
+    def test_historical_backfill_parse_google_pub_date(self):
+        d = historical_backfill._parse_google_pub_date("Wed, 02 Oct 2002 13:00:00 GMT")
+        self.assertIsNotNone(d)
+        self.assertEqual(d.isoformat(), "2002-10-02")
+        self.assertIsNone(historical_backfill._parse_google_pub_date("not a date"))
+
     def test_replay_select_runs_for_replay(self):
         runs = [
             {"run_id": "r0", "stats": {"failed_chunks_total": 0}},
@@ -690,6 +704,36 @@ class TestStrictLogic(unittest.TestCase):
             replay_backfill_failures.derive_job_status(1, {"failed_chunks_total": 0}),
             "failed",
         )
+
+    def test_replay_build_backfill_command_includes_google_flags(self):
+        args = type(
+            "Args",
+            (),
+            {
+                "python_bin": ".venv/bin/python",
+                "chunk_days": 7,
+                "request_timeout": 12,
+                "request_retries": 1,
+                "rate_limit_cooldown": 5.0,
+                "retry_backoff_max": 10.0,
+                "google_max_span_days": 3,
+                "pause_between_chunks": 0.2,
+                "min_split_days": 3,
+                "allow_partial": True,
+                "overwrite_backfill": True,
+                "google_fallback": True,
+                "use_env_proxy": False,
+                "verbose_chunks": True,
+            },
+        )()
+        cmd = replay_backfill_failures.build_backfill_command(
+            args=args,
+            job={"query": "ufo", "start": "2002-01-01", "end": "2002-01-03"},
+            policy="strict-balanced",
+        )
+        self.assertIn("--google-fallback", cmd)
+        self.assertIn("--google-max-span-days", cmd)
+        self.assertIn("3", cmd)
 
     def test_replay_filter_jobs_by_replay_history(self):
         now_iso = datetime.now(timezone.utc).isoformat()

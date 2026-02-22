@@ -56,6 +56,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--request-retries", type=int, default=2)
     p.add_argument("--rate-limit-cooldown", type=float, default=60.0)
     p.add_argument("--retry-backoff-max", type=float, default=180.0)
+    p.add_argument("--google-fallback", action="store_true", help="重放时开启 Google News RSS 小窗口补抓")
+    p.add_argument("--google-max-span-days", type=int, default=14, help="Google RSS 补抓最大窗口天数")
     p.add_argument("--pause-between-chunks", type=float, default=1.0)
     p.add_argument("--min-split-days", type=int, default=90)
     p.add_argument("--sleep-between-jobs", type=float, default=1.0, help="每个重放任务之间暂停秒数")
@@ -318,6 +320,8 @@ def build_backfill_command(args: argparse.Namespace, job: dict, policy: str) -> 
         str(args.rate_limit_cooldown),
         "--retry-backoff-max",
         str(args.retry_backoff_max),
+        "--google-max-span-days",
+        str(args.google_max_span_days),
         "--pause-between-chunks",
         str(args.pause_between_chunks),
         "--min-split-days",
@@ -327,6 +331,8 @@ def build_backfill_command(args: argparse.Namespace, job: dict, policy: str) -> 
         cmd.append("--allow-partial")
     if args.overwrite_backfill:
         cmd.append("--overwrite-backfill")
+    if args.google_fallback:
+        cmd.append("--google-fallback")
     if args.use_env_proxy:
         cmd.append("--use-env-proxy")
     if args.verbose_chunks:
