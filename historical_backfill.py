@@ -31,6 +31,7 @@ REQUEST_TIMEOUT = 120
 REQUEST_RETRIES = 3
 CHUNK_DAYS = 5000
 PAUSE_BETWEEN_CHUNKS = 5.2
+MIN_SPLIT_DAYS = 90
 BACKFILL_TAG = "gdelt_timeline_backfill_v1"
 
 # 查询尽量短，避免语法复杂导致接口波动。
@@ -63,6 +64,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--request-timeout", type=int, default=REQUEST_TIMEOUT, help=f"单次请求超时秒数（默认 {REQUEST_TIMEOUT}）")
     p.add_argument("--request-retries", type=int, default=REQUEST_RETRIES, help=f"单段重试次数（默认 {REQUEST_RETRIES}）")
     p.add_argument("--pause-between-chunks", type=float, default=PAUSE_BETWEEN_CHUNKS, help="分段请求间隔秒数")
+    p.add_argument(
+        "--min-split-days",
+        type=int,
+        default=MIN_SPLIT_DAYS,
+        help=f"失败分段自动二分重试的最小天数阈值（默认 {MIN_SPLIT_DAYS}）",
+    )
     p.add_argument("--allow-partial", action="store_true", help="分段失败时跳过该段继续（推荐）")
     p.add_argument("--skip-zero-days", action="store_true", help="跳过全零天（默认保留）")
     p.add_argument(
@@ -89,6 +96,128 @@ def _to_gdelt_dt(d: date, end_of_day: bool = False) -> str:
     return d.strftime("%Y%m%d") + "000000"
 
 
+def split_date_range(start: date, end: date) -> tuple[tuple[date, date], tuple[date, date]]:
+    span_days = (end - start).days + 1
+    if span_days <= 1:
+        return (start, end), (end, end)
+    left_days = span_days // 2
+    left_end = start + timedelta(days=max(0, left_days - 1))  # type: ignore
+    right_start = left_end + timedelta(days=1)  # type: ignore
+    return (start, left_end), (right_start, end)
+
+
+def _request_timeline_payload(
+    query: str,
+    start: date,
+    end: date,
+    mode: str,
+    request_timeout: int,
+    request_retries: int,
+) -> tuple[dict | None, str]:
+    params = {
+        "query": query,
+        "mode": mode,
+        "format": "json",
+        "startdatetime": _to_gdelt_dt(start),
+        "enddatetime": _to_gdelt_dt(end, end_of_day=True),
+    }
+    last_err = ""
+    for attempt in range(1, max(1, request_retries) + 1):
+        try:
+            resp = requests.get(
+                GDELT_ENDPOINT,
+                params=params,
+                timeout=max(5, request_timeout),
+            )  # type: ignore
+            if resp.status_code == 429:
+                raise requests.HTTPError("429 Too Many Requests", response=resp)
+            resp.raise_for_status()
+            payload = resp.json()  # type: ignore
+            return payload, ""
+        except Exception as e:
+            last_err = str(e)
+            sleep_s = min(20.0, 1.2 * (2 ** (attempt - 1)))
+            time.sleep(sleep_s)
+    return None, last_err or "unknown_error"
+
+
+def _parse_timeline_payload(payload: dict) -> Dict[str, int]:
+    out: Dict[str, int] = {}
+    timeline = payload.get("timeline", [])  # type: ignore
+    data = timeline[0].get("data", []) if timeline else []  # type: ignore
+    for row in data:
+        s = str(row.get("date", ""))  # type: ignore
+        if not s:
+            continue
+        day = s[:8]
+        if len(day) != 8:
+            continue
+        iso = f"{day[:4]}-{day[4:6]}-{day[6:]}"
+        val = row.get("value", row.get("norm", 0))  # type: ignore
+        try:
+            out[iso] = int(float(val or 0))
+        except Exception:
+            out[iso] = 0
+    return out
+
+
+def _fetch_chunk_with_split(
+    query: str,
+    start: date,
+    end: date,
+    request_timeout: int,
+    request_retries: int,
+    pause_between_chunks: float,
+    min_split_days: int,
+) -> tuple[Dict[str, int], List[dict]]:
+    modes = ("TimelineVolRaw", "TimelineVol")
+    mode_errors = []
+    for mode in modes:
+        payload, err = _request_timeline_payload(
+            query=query,
+            start=start,
+            end=end,
+            mode=mode,
+            request_timeout=request_timeout,
+            request_retries=request_retries,
+        )
+        if payload is not None:
+            return _parse_timeline_payload(payload), []
+        mode_errors.append(f"{mode}: {err}")
+
+    span_days = (end - start).days + 1
+    if span_days > max(1, int(min_split_days)):
+        (l_start, l_end), (r_start, r_end) = split_date_range(start, end)
+        left_counts, left_failed = _fetch_chunk_with_split(
+            query=query,
+            start=l_start,
+            end=l_end,
+            request_timeout=request_timeout,
+            request_retries=request_retries,
+            pause_between_chunks=pause_between_chunks,
+            min_split_days=min_split_days,
+        )
+        time.sleep(max(0.0, pause_between_chunks))
+        right_counts, right_failed = _fetch_chunk_with_split(
+            query=query,
+            start=r_start,
+            end=r_end,
+            request_timeout=request_timeout,
+            request_retries=request_retries,
+            pause_between_chunks=pause_between_chunks,
+            min_split_days=min_split_days,
+        )
+        merged = left_counts
+        merged.update(right_counts)
+        return merged, left_failed + right_failed
+
+    return {}, [{
+        "start": start.isoformat(),  # type: ignore
+        "end": end.isoformat(),  # type: ignore
+        "error": " | ".join(mode_errors),
+    }]
+
+
 def fetch_timeline_counts(
     query: str,
     start: date,
@@ -97,60 +226,24 @@ def fetch_timeline_counts(
     request_timeout: int,
     request_retries: int,
     pause_between_chunks: float,
+    min_split_days: int,
 ) -> tuple[Dict[str, int], List[dict]]:
-    out = {}
-    failed_chunks = []
+    out: Dict[str, int] = {}
+    failed_chunks: List[dict] = []
     cursor = start
     while cursor <= end:
         chunk_end = min(end, cursor + timedelta(days=max(1, chunk_days) - 1))  # type: ignore
-        params = {
-            "query": query,
-            "mode": "TimelineVolRaw",
-            "format": "json",
-            "startdatetime": _to_gdelt_dt(cursor),
-            "enddatetime": _to_gdelt_dt(chunk_end, end_of_day=True),
-        }
-
-        payload = None
-        last_err = ""
-        for attempt in range(1, max(1, request_retries) + 1):
-            try:
-                resp = requests.get(
-                    GDELT_ENDPOINT,
-                    params=params,
-                    timeout=max(5, request_timeout),
-                )  # type: ignore
-                if resp.status_code == 429:
-                    raise requests.HTTPError("429 Too Many Requests", response=resp)
-                resp.raise_for_status()
-                payload = resp.json()  # type: ignore
-                break
-            except Exception as e:
-                last_err = str(e)
-                sleep_s = min(20.0, 1.2 * (2 ** (attempt - 1)))
-                time.sleep(sleep_s)
-
-        if payload is None:
-            failed_chunks.append({
-                "start": cursor.isoformat(),  # type: ignore
-                "end": chunk_end.isoformat(),  # type: ignore
-                "error": last_err,
-            })
-            time.sleep(max(0.0, pause_between_chunks))
-            cursor = chunk_end + timedelta(days=1)  # type: ignore
-            continue
-
-        timeline = payload.get("timeline", [])  # type: ignore
-        data = timeline[0].get("data", []) if timeline else []  # type: ignore
-        for row in data:
-            s = str(row.get("date", ""))  # type: ignore
-            if not s:
-                continue
-            day = s[:8]
-            if len(day) != 8:
-                continue
-            iso = f"{day[:4]}-{day[4:6]}-{day[6:]}"
-            out[iso] = int(row.get("value", 0) or 0)  # type: ignore
+        counts, failed = _fetch_chunk_with_split(
+            query=query,
+            start=cursor,
+            end=chunk_end,
+            request_timeout=request_timeout,
+            request_retries=request_retries,
+            pause_between_chunks=pause_between_chunks,
+            min_split_days=min_split_days,
+        )
+        out.update(counts)
+        failed_chunks.extend(failed)  # type: ignore
 
         time.sleep(max(0.0, pause_between_chunks))
         cursor = chunk_end + timedelta(days=1)  # type: ignore
@@ -263,6 +356,7 @@ def main() -> None:
             request_timeout=args.request_timeout,
             request_retries=args.request_retries,
             pause_between_chunks=args.pause_between_chunks,
+            min_split_days=args.min_split_days,
         )
         series_map[key] = counts  # type: ignore
         failed_chunks[key] = failed  # type: ignore

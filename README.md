@@ -292,6 +292,9 @@ python historical_backfill.py --start-date 2017-01-01 --policy strict
 
 # 长年份更稳跑法：先只抓核心因果序列（ufo+crisis），控制项后补
 python historical_backfill.py --start-date 2010-01-01 --end-date 2016-12-31 --queries ufo,crisis --allow-partial
+
+# 分段失败自动二分重试（提升历史段成功率）
+python historical_backfill.py --start-date 1990-01-01 --end-date 1999-12-31 --queries ufo,crisis --allow-partial --min-split-days 90
 ```
 输出：
 - `data/causal_panel.json`（补充历史日度面板）

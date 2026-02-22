@@ -508,6 +508,15 @@ class TestStrictLogic(unittest.TestCase):
         with self.assertRaises(ValueError):
             historical_backfill.parse_selected_queries("ufo,unknown_query")
 
+    def test_historical_backfill_split_date_range(self):
+        s = causal_analyzer.parse_date("1990-01-01")
+        e = causal_analyzer.parse_date("1990-01-10")
+        (l1, l2), (r1, r2) = historical_backfill.split_date_range(s, e)
+        self.assertEqual(l1.isoformat(), "1990-01-01")
+        self.assertEqual(l2.isoformat(), "1990-01-05")
+        self.assertEqual(r1.isoformat(), "1990-01-06")
+        self.assertEqual(r2.isoformat(), "1990-01-10")
+
 
 if __name__ == "__main__":
     unittest.main()
