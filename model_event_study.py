@@ -36,6 +36,7 @@ MIN_OBS_DAYS = 90
 MIN_SHOCK_DAYS = 10
 PLACEBO_BUFFER_DAYS = 14
 SHOCK_COUNT_FLOOR = 2.0
+MAX_SHOCKS_FOR_PLACEBO = 180
 
 
 # parse_date, percentile, compute_shock_threshold 已移至 utils.py
@@ -45,23 +46,46 @@ def read_rows(policy: str = "strict-balanced") -> List[dict]:
     return _read_panel_rows(PANEL_FILE, policy)
 
 
-def baseline(series: Dict[date, float], d: date) -> float | None:
+def downsample_dates_evenly(dates: List[date], max_n: int) -> List[date]:
+    if max_n <= 0 or len(dates) <= max_n:
+        return list(dates)
+    if max_n == 1:
+        return [dates[len(dates) // 2]]
+    last = len(dates) - 1
+    return [dates[(i * last) // (max_n - 1)] for i in range(max_n)]  # type: ignore
+
+
+def baseline(
+    series: Dict[date, float],
+    d: date,
+    cache: Dict[date, float | None] | None = None,
+) -> float | None:
+    if cache is not None and d in cache:
+        return cache[d]
     vals = []
     for k in range(-21, -7):
         dd = d + timedelta(days=k)  # type: ignore
         if dd in series:
             vals.append(series[dd])  # type: ignore
     if len(vals) < 5:
-        return None
-    return mean(vals)
+        out = None
+    else:
+        out = mean(vals)
+    if cache is not None:
+        cache[d] = out
+    return out
 
 
-def dynamic_effect(series: Dict[date, float], shocks: List[date]) -> Dict[int, float | None]:
+def dynamic_effect(
+    series: Dict[date, float],
+    shocks: List[date],
+    baseline_cache: Dict[date, float | None] | None = None,
+) -> Dict[int, float | None]:
     out: Dict[int, float | None] = {}  # type: ignore
     for k in range(-14, 15):
         vals = []
         for d in shocks:
-            b = baseline(series, d)
+            b = baseline(series, d, cache=baseline_cache)
             if b is None:
                 continue
             dd = d + timedelta(days=k)  # type: ignore
@@ -71,21 +95,27 @@ def dynamic_effect(series: Dict[date, float], shocks: List[date]) -> Dict[int, f
     return out
 
 
-def placebo_peak_test(series: Dict[date, float], shocks: List[date], candidates: List[date]) -> tuple[float, float, int]:
-    dyn = dynamic_effect(series, shocks)
+def placebo_peak_test(
+    series: Dict[date, float],
+    shocks: List[date],
+    candidates: List[date],
+    permutations: int,
+    baseline_cache: Dict[date, float | None] | None = None,
+) -> tuple[float, float, int]:
+    dyn = dynamic_effect(series, shocks, baseline_cache=baseline_cache)
     post_vals = [v for k, v in dyn.items() if 1 <= k <= 14 and v is not None]  # type: ignore
     obs_peak = max(post_vals) if post_vals else 0.0
 
     m = len(shocks)
-    valid_candidates = [d for d in candidates if baseline(series, d) is not None]
+    valid_candidates = [d for d in candidates if baseline(series, d, cache=baseline_cache) is not None]
     rng = make_rng(SEED)
     if len(valid_candidates) < m or m == 0:
         return obs_peak, 1.0, 0
 
     null = []
-    for _ in range(PERMUTATIONS):
+    for _ in range(max(1, int(permutations))):
         sample = rng.sample(valid_candidates, m)
-        d2 = dynamic_effect(series, sample)
+        d2 = dynamic_effect(series, sample, baseline_cache=baseline_cache)
         pvals = [v for k, v in d2.items() if 1 <= k <= 14 and v is not None]  # type: ignore
         if not pvals:
             continue
@@ -111,6 +141,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-observed-days", type=int, default=MIN_OBS_DAYS)
     p.add_argument("--min-shock-days", type=int, default=MIN_SHOCK_DAYS)
     p.add_argument("--placebo-buffer-days", type=int, default=PLACEBO_BUFFER_DAYS)
+    p.add_argument("--permutations", type=int, default=PERMUTATIONS)
+    p.add_argument("--max-shocks-for-placebo", type=int, default=MAX_SHOCKS_FOR_PLACEBO)
     return p.parse_args()
 
 
@@ -132,6 +164,9 @@ def main() -> None:
             "post_peak": None,
             "post_peak_p_value": None,
             "placebo_draws": 0,
+            "permutations": int(args.permutations),
+            "shock_days_used": 0,
+            "shock_sampling": "full",
         },
         "gates": {
             "pretrend_ok": False,
@@ -157,8 +192,15 @@ def main() -> None:
         if len(shocks) < args.min_shock_days:
             out["reason"] = f"shock_days < {args.min_shock_days}，事件研究不稳定"  # type: ignore
         else:
-            dyn = dynamic_effect(ufo_series, shocks)
+            max_shocks = max(args.min_shock_days, int(args.max_shocks_for_placebo))
+            shocks_for_event = downsample_dates_evenly(shocks, max_shocks)
+            baseline_cache: Dict[date, float | None] = {}
+            dyn = dynamic_effect(ufo_series, shocks_for_event, baseline_cache=baseline_cache)
             out["dynamic_effect"] = {str(k): v for k, v in dyn.items()}  # type: ignore
+            out["metrics"]["shock_days_used"] = len(shocks_for_event)  # type: ignore
+            out["metrics"]["shock_sampling"] = (  # type: ignore
+                "downsample_evenly" if len(shocks_for_event) < len(shocks) else "full"
+            )
 
             pre_vals = [v for k, v in dyn.items() if -14 <= k <= -1 and v is not None]  # type: ignore
             post_vals = [v for k, v in dyn.items() if 1 <= k <= 14 and v is not None]  # type: ignore
@@ -170,7 +212,13 @@ def main() -> None:
                 for d in dates
                 if d not in set(shocks) and min_distance_to_shocks(d, shocks) > args.placebo_buffer_days
             ]
-            obs_peak, p_peak, draws = placebo_peak_test(ufo_series, shocks, placebo_candidates)
+            obs_peak, p_peak, draws = placebo_peak_test(
+                ufo_series,
+                shocks_for_event,
+                placebo_candidates,
+                permutations=args.permutations,
+                baseline_cache=baseline_cache,
+            )
 
             out["metrics"]["pretrend_abs_mean"] = round(pre_abs_mean, 6) if pre_abs_mean is not None else None  # type: ignore
             out["metrics"]["post_peak"] = round(post_peak, 6) if post_peak is not None else None  # type: ignore

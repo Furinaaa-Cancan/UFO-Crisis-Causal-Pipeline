@@ -239,6 +239,12 @@ python research_unified_pipeline.py --only-policy strict --model-policy strict
 - `data/model_synth_control_report.json`
 - `data/model_causal_ml_report.json`
 
+事件研究（`model_event_study.py`）支持大样本稳态参数，避免在冲击日很多时长时间卡住：
+```bash
+# 默认会在安慰剂阶段对冲击日做等距下采样（默认上限180），并保留2000次置换
+python model_event_study.py --policy strict-balanced --permutations 2000 --max-shocks-for-placebo 180
+```
+
 `strict_review_snapshot.json` 现在包含三层解释矩阵（避免直接二元“故意/不故意”）：
 - `stage_a_temporal_association`：是否存在稳定时序相关
 - `stage_b_causal_identification`：是否通过因果识别闸门

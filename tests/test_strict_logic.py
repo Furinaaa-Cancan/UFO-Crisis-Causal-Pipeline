@@ -7,6 +7,7 @@ from pathlib import Path
 import causal_analyzer
 import control_panel_builder
 import model_did
+import model_event_study
 import model_causal_ml
 import model_synth_control
 import panel_pipeline
@@ -400,6 +401,34 @@ class TestStrictLogic(unittest.TestCase):
         end = causal_analyzer.parse_date("2026-01-03")
         grid = control_panel_builder.build_date_grid(start, end)
         self.assertEqual(grid, ["2026-01-01", "2026-01-02", "2026-01-03"])
+
+    def test_event_study_downsample_dates_evenly_keeps_bounds(self):
+        start = causal_analyzer.parse_date("2026-01-01")
+        dates = [start + timedelta(days=i) for i in range(10)]
+        sampled = model_event_study.downsample_dates_evenly(dates, 4)
+        self.assertEqual(len(sampled), 4)
+        self.assertEqual(sampled[0], dates[0])
+        self.assertEqual(sampled[-1], dates[-1])
+        self.assertTrue(all(sampled[i] < sampled[i + 1] for i in range(len(sampled) - 1)))
+
+    def test_event_study_placebo_respects_permutations_arg(self):
+        start = causal_analyzer.parse_date("2025-01-01")
+        dates = [start + timedelta(days=i) for i in range(140)]
+        series = {d: float((i % 7) + 1) for i, d in enumerate(dates)}
+        shocks = [start + timedelta(days=i) for i in range(45, 80, 3)]
+        candidates = [start + timedelta(days=i) for i in range(90, 130, 2)]
+        obs_peak, p_val, draws = model_event_study.placebo_peak_test(
+            series=series,
+            shocks=shocks,
+            candidates=candidates,
+            permutations=15,
+            baseline_cache={},
+        )
+        self.assertIsInstance(obs_peak, float)
+        self.assertGreaterEqual(p_val, 0.0)
+        self.assertLessEqual(p_val, 1.0)
+        self.assertGreater(draws, 0)
+        self.assertLessEqual(draws, 15)
 
     def test_official_source_detection(self):
         self.assertTrue(strict_reviewer.is_official_source("Pentagon / DoD 新闻稿"))
