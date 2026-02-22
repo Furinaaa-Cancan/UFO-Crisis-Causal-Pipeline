@@ -303,6 +303,13 @@ python strict_reviewer.py \
   --min-official-lead-events 1
 ```
 
+评审快照会额外输出 `mechanism_sensitivity`（strict / balanced / exploratory 三档）：
+- strict 档：发布级口径（默认主结论仍以此为准）
+- balanced 档：研究级口径（允许 `proxy_strict_positive` 作为临时机制证据）
+- exploratory 档：探索级筛查（仅用于找方向，不用于对外强结论）
+
+用途：直接判断“未通过”到底是阈值过严还是证据结构不足，避免主观争论。
+
 > 注意：模型脚本在样本不足或对照组缺失时会明确返回 `pending/blocked`，不会伪造因果结论。
 > 注意：`model_causal_ml.py` 只有在非 fallback 建模链路（例如 `cross_fitted_rf` 或 `cross_fitted_linear_ridge`，且非 `constant_cate_fallback`）并且异质性可估时才允许 `causal_ml_passed=true`。
 > 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，

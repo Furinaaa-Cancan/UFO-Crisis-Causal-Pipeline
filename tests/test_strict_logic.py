@@ -964,6 +964,44 @@ class TestStrictLogic(unittest.TestCase):
         # official_lead_events still from live lag/source-order evidence.
         self.assertFalse(m["gates"]["official_lead_events>=1"])
 
+    def test_mechanism_sensitivity_all_profiles_fail_when_lead_evidence_absent(self):
+        metrics = {
+            "effective_ufo_events_total": 28,
+            "effective_official_share": 0.25,
+            "official_lead_events": 0,
+            "pair_proxy_strict_positive_lag_events": 0,
+            "official_primary_with_media_followup_events": 0,
+        }
+        s = strict_reviewer.build_mechanism_sensitivity_profiles(
+            mechanism_metrics=metrics,
+            min_ufo_events=8,
+            min_official_share=0.30,
+            min_official_lead_events=1,
+        )
+        self.assertFalse(s["assessment"]["strict_profile_passed"])
+        self.assertEqual(s["assessment"]["relaxed_profiles_passed_count"], 0)
+        self.assertEqual(s["assessment"]["strictness_judgement"], "evidence_limited")
+
+    def test_mechanism_sensitivity_relaxed_profiles_can_pass_with_proxy_pairs(self):
+        metrics = {
+            "effective_ufo_events_total": 28,
+            "effective_official_share": 0.25,
+            "official_lead_events": 0,
+            "pair_proxy_strict_positive_lag_events": 2,
+            "official_primary_with_media_followup_events": 0,
+        }
+        s = strict_reviewer.build_mechanism_sensitivity_profiles(
+            mechanism_metrics=metrics,
+            min_ufo_events=8,
+            min_official_share=0.30,
+            min_official_lead_events=1,
+        )
+        profile_pass = {str(p["name"]): bool(p["passed"]) for p in s["profiles"]}
+        self.assertFalse(profile_pass["strict_primary"])
+        self.assertTrue(profile_pass["balanced_proxy"])
+        self.assertGreaterEqual(s["assessment"]["relaxed_profiles_passed_count"], 1)
+        self.assertEqual(s["assessment"]["strictness_judgement"], "conservative_but_not_excessive")
+
     def test_inference_matrix_transitions(self):
         mechanism_fail = {"mechanism_passed": False}
         mechanism_pass = {"mechanism_passed": True}

@@ -51,6 +51,10 @@ OFFICIAL_SOURCE_HINTS = (
     "aaro",
 )
 
+LEAD_EVIDENCE_STRICT_ONLY = "strict_only"
+LEAD_EVIDENCE_STRICT_OR_PROXY = "strict_or_proxy"
+LEAD_EVIDENCE_STRICT_PROXY_OR_SOURCE_ORDER = "strict_proxy_or_source_order"
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="统一严格评审")
@@ -212,6 +216,117 @@ def summarize_mechanism_signals(
         "gates": gates,
         "lead_basis": lead_basis,
         "mechanism_passed": mechanism_passed,
+    }
+
+
+def _lead_events_for_mode(mechanism_metrics: Dict[str, Any], lead_evidence_mode: str) -> int:
+    strict_lead_events = int(mechanism_metrics.get("official_lead_events", 0) or 0)
+    proxy_positive_pairs = int(mechanism_metrics.get("pair_proxy_strict_positive_lag_events", 0) or 0)
+    source_order_proxy_events = int(mechanism_metrics.get("official_primary_with_media_followup_events", 0) or 0)
+
+    if lead_evidence_mode == LEAD_EVIDENCE_STRICT_ONLY:
+        return strict_lead_events
+    if lead_evidence_mode == LEAD_EVIDENCE_STRICT_OR_PROXY:
+        return max(strict_lead_events, proxy_positive_pairs)
+    if lead_evidence_mode == LEAD_EVIDENCE_STRICT_PROXY_OR_SOURCE_ORDER:
+        return max(strict_lead_events, proxy_positive_pairs, source_order_proxy_events)
+    return strict_lead_events
+
+
+def build_mechanism_sensitivity_profiles(
+    mechanism_metrics: Dict[str, Any],
+    min_ufo_events: int,
+    min_official_share: float,
+    min_official_lead_events: int,
+) -> Dict[str, Any]:
+    effective_ufo_events_total = int(mechanism_metrics.get("effective_ufo_events_total", 0) or 0)
+    effective_official_share = float(mechanism_metrics.get("effective_official_share", 0.0) or 0.0)
+
+    profile_configs = [
+        {
+            "name": "strict_primary",
+            "description": "发布级结论：仅接受严格时序证据（lag / strict pair lag / source-order strict path）",
+            "min_ufo_events": int(min_ufo_events),
+            "min_official_share": float(min_official_share),
+            "min_official_lead_events": int(min_official_lead_events),
+            "lead_evidence_mode": LEAD_EVIDENCE_STRICT_ONLY,
+        },
+        {
+            "name": "balanced_proxy",
+            "description": "研究级：允许 proxy_strict_positive 作为临时机制证据",
+            "min_ufo_events": max(4, int(min_ufo_events) - 2),
+            "min_official_share": max(0.20, round(float(min_official_share) - 0.10, 2)),
+            "min_official_lead_events": int(min_official_lead_events),
+            "lead_evidence_mode": LEAD_EVIDENCE_STRICT_OR_PROXY,
+        },
+        {
+            "name": "exploratory_proxy",
+            "description": "探索级：降低样本/占比门槛，并允许 proxy/source-order 辅助证据",
+            "min_ufo_events": max(3, int(min_ufo_events) - 4),
+            "min_official_share": max(0.10, round(float(min_official_share) - 0.20, 2)),
+            "min_official_lead_events": int(min_official_lead_events),
+            "lead_evidence_mode": LEAD_EVIDENCE_STRICT_PROXY_OR_SOURCE_ORDER,
+        },
+    ]
+
+    profile_results = []
+    for cfg in profile_configs:
+        lead_events = _lead_events_for_mode(mechanism_metrics, str(cfg["lead_evidence_mode"]))
+        gates = {
+            f"effective_ufo_events>={cfg['min_ufo_events']}": effective_ufo_events_total >= int(cfg["min_ufo_events"]),
+            f"effective_official_share>={float(cfg['min_official_share']):.2f}": (
+                effective_official_share >= float(cfg["min_official_share"])
+            ),
+            f"lead_events({cfg['lead_evidence_mode']})>={cfg['min_official_lead_events']}": (
+                lead_events >= int(cfg["min_official_lead_events"])
+            ),
+        }
+        profile_results.append(
+            {
+                "name": cfg["name"],
+                "description": cfg["description"],
+                "thresholds": {
+                    "min_ufo_events": cfg["min_ufo_events"],
+                    "min_official_share": cfg["min_official_share"],
+                    "min_official_lead_events": cfg["min_official_lead_events"],
+                    "lead_evidence_mode": cfg["lead_evidence_mode"],
+                },
+                "derived_lead_events": int(lead_events),
+                "gates": gates,
+                "passed": bool(all(gates.values())),
+            }
+        )
+
+    strict_profile = profile_results[0] if profile_results else {"passed": False}
+    relaxed_passed = [p for p in profile_results[1:] if p.get("passed")]
+    strict_profile_passed = bool(strict_profile.get("passed", False))
+
+    if strict_profile_passed:
+        strictness_judgement = "not_over_strict"
+        interpretation = "严格档已通过，当前评审强度不是主要瓶颈。"
+    elif relaxed_passed:
+        strictness_judgement = "conservative_but_not_excessive"
+        interpretation = "严格档未过但宽松档可过：说明严格标准偏保守，适合发布级结论；研究探索可参考宽松档。"
+    else:
+        strictness_judgement = "evidence_limited"
+        interpretation = "严格与宽松档均未通过：主要问题是机制证据不足，而非阈值过严。"
+
+    return {
+        "metric_snapshot": {
+            "effective_ufo_events_total": effective_ufo_events_total,
+            "effective_official_share": round(effective_official_share, 6),  # type: ignore
+            "strict_lead_events": int(mechanism_metrics.get("official_lead_events", 0) or 0),
+            "proxy_positive_pairs": int(mechanism_metrics.get("pair_proxy_strict_positive_lag_events", 0) or 0),
+            "source_order_proxy_events": int(mechanism_metrics.get("official_primary_with_media_followup_events", 0) or 0),
+        },
+        "profiles": profile_results,
+        "assessment": {
+            "strict_profile_passed": strict_profile_passed,
+            "relaxed_profiles_passed_count": len(relaxed_passed),
+            "relaxed_profiles_passed_names": [str(p.get("name", "")) for p in relaxed_passed],
+            "strictness_judgement": strictness_judgement,
+            "interpretation": interpretation,
+        },
     }
 
 
@@ -501,6 +616,12 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
         historical_mechanism=historical_mechanism,
         official_media_pairs=official_media_pairs,
     )
+    mechanism_sensitivity = build_mechanism_sensitivity_profiles(
+        mechanism_metrics=mechanism.get("metrics", {}) if isinstance(mechanism, dict) else {},
+        min_ufo_events=args.min_mechanism_ufo_events,
+        min_official_share=args.min_official_share,
+        min_official_lead_events=args.min_official_lead_events,
+    )
 
     summary: Dict[str, Any] = {  # type: ignore
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
@@ -524,6 +645,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
             "dual_overlap_days": int(dual.get("current", {}).get("overlap_days", 0) or 0),  # type: ignore
         },
         "mechanism": mechanism,
+        "mechanism_sensitivity": mechanism_sensitivity,
         "mechanism_historical": historical_mechanism,
         "quality": {
             "source_availability_rate": avail,
@@ -635,6 +757,24 @@ def main() -> None:
         f"ufo_events={report['mechanism_historical']['metrics']['ufo_events_total']}, "
         f"government_action_share={report['mechanism_historical']['metrics']['government_action_share']}"
     )  # type: ignore
+    sensitivity = report.get("mechanism_sensitivity", {})  # type: ignore
+    if isinstance(sensitivity, dict):
+        assess = sensitivity.get("assessment", {}) if isinstance(sensitivity.get("assessment"), dict) else {}
+        profiles = sensitivity.get("profiles", []) if isinstance(sensitivity.get("profiles"), list) else []
+        if assess:
+            print(
+                "mechanism_sensitivity: "
+                f"strict_profile_passed={assess.get('strict_profile_passed')}, "
+                f"relaxed_passed={assess.get('relaxed_profiles_passed_names')}, "
+                f"judgement={assess.get('strictness_judgement')}"
+            )
+            print(f"mechanism_sensitivity_interpretation: {assess.get('interpretation')}")
+        if profiles:
+            profile_flags = []
+            for row in profiles:
+                if isinstance(row, dict):
+                    profile_flags.append(f"{row.get('name')}={row.get('passed')}")
+            print(f"mechanism_sensitivity_profiles: {', '.join(profile_flags)}")
     lead_diag_summary = report.get("quality", {}).get("official_lead_diagnostics", {}).get("summary", {})  # type: ignore
     if lead_diag_summary:
         print(
