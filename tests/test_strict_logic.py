@@ -1001,7 +1001,11 @@ class TestStrictLogic(unittest.TestCase):
                 "strict_positive_lag_pairs": 1,
                 "strict_with_timestamp_pairs": 1,
                 "official_events_with_strict_followup": 1,
-            }
+            },
+            "pairs": [
+                {"evidence_tier": "strict", "lag_days": 5},
+                {"evidence_tier": "strict", "lag_days": 0},
+            ],
         }
         m = strict_reviewer.summarize_mechanism_signals(
             scraped=scraped,
@@ -1013,6 +1017,9 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(m["lead_basis"], "pair_strict_lag")
         self.assertEqual(m["metrics"]["official_lead_events"], 1)
         self.assertEqual(m["metrics"]["pair_strict"], 2)
+        self.assertEqual(m["metrics"]["lag_observed_events"], 2)
+        self.assertEqual(m["metrics"]["official_to_media_lag_days_q50"], 2.5)
+        self.assertEqual(m["metrics"]["pair_strict_lag_days_q50"], 2.5)
         self.assertTrue(m["gates"]["official_lead_events>=1"])
 
     def test_official_media_pairs_proxy_without_direct_mirror_stays_proxy_strict(self):

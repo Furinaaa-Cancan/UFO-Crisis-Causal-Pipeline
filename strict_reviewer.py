@@ -164,6 +164,9 @@ def summarize_mechanism_signals(
     enough_ufo_events = effective_total >= min_ufo_events
 
     pair_summary = (official_media_pairs or {}).get("summary", {}) if isinstance(official_media_pairs, dict) else {}
+    pair_rows = (official_media_pairs or {}).get("pairs", []) if isinstance(official_media_pairs, dict) else []
+    if not isinstance(pair_rows, list):
+        pair_rows = []
     pair_total = int(pair_summary.get("total_pairs", 0) or 0)
     pair_strict = int(pair_summary.get("strict_pairs", 0) or 0)
     pair_proxy_strict = int(pair_summary.get("proxy_strict_pairs", 0) or 0)
@@ -176,6 +179,23 @@ def summarize_mechanism_signals(
     pair_official_with_followup = int(pair_summary.get("official_events_with_strict_followup", 0) or 0)
     pair_lead_events = pair_positive if pair_positive > 0 else pair_nonnegative
 
+    strict_pair_lag_values: list[float] = []
+    strict_pair_lag_nonnegative = 0
+    strict_pair_lag_positive = 0
+    for row in pair_rows:
+        if not isinstance(row, dict):
+            continue
+        tier = str(row.get("evidence_tier", "")).strip().lower()
+        lag_day = row.get("lag_days")
+        if tier != "strict" or not isinstance(lag_day, (int, float)):
+            continue
+        lag_v = float(lag_day)
+        strict_pair_lag_values.append(lag_v)
+        if lag_v >= 0:
+            strict_pair_lag_nonnegative += 1
+        if lag_v > 0:
+            strict_pair_lag_positive += 1
+
     # Prefer timestamp/day lag evidence first, then pair-based strict lag evidence,
     # and fallback to source-order proxy only when no lag evidence exists.
     if lag_observed_events > 0:
@@ -187,7 +207,20 @@ def summarize_mechanism_signals(
     else:
         official_lead_events = official_primary_with_media_followup
         lead_basis = "source_order_proxy"
-    lag_mean = (sum(lag_values) / float(len(lag_values))) if lag_values else None
+    lag_mean_live = (sum(lag_values) / float(len(lag_values))) if lag_values else None
+
+    effective_lag_values = lag_values if lag_values else strict_pair_lag_values
+    lag_observed_effective = lag_observed_events if lag_observed_events > 0 else len(strict_pair_lag_values)
+    lead_by_lag_effective = (
+        official_lead_by_lag_events
+        if lag_observed_events > 0
+        else (strict_pair_lag_positive if strict_pair_lag_positive > 0 else strict_pair_lag_nonnegative)
+    )
+    lag_mean_effective = (
+        (sum(effective_lag_values) / float(len(effective_lag_values)))
+        if effective_lag_values
+        else None
+    )
 
     gates = {
         f"ufo_events>={min_ufo_events}": enough_ufo_events,
@@ -205,10 +238,14 @@ def summarize_mechanism_signals(
             "official_primary_with_media_followup_events": official_primary_with_media_followup,
             "media_primary_with_official_secondary_events": media_primary_with_official_secondary,
             "official_lead_events": official_lead_events,
-            "lag_observed_events": lag_observed_events,
-            "official_lead_by_lag_events": official_lead_by_lag_events,
-            "official_to_media_lag_days_mean": (round(lag_mean, 6) if lag_mean is not None else None),
-            "official_to_media_lag_days_q50": (round(percentile(lag_values, 50), 6) if lag_values else None),
+            "lag_observed_events_live": lag_observed_events,
+            "official_lead_by_lag_events_live": official_lead_by_lag_events,
+            "official_to_media_lag_days_mean_live": (round(lag_mean_live, 6) if lag_mean_live is not None else None),
+            "official_to_media_lag_days_q50_live": (round(percentile(lag_values, 50), 6) if lag_values else None),
+            "lag_observed_events": lag_observed_effective,
+            "official_lead_by_lag_events": lead_by_lag_effective,
+            "official_to_media_lag_days_mean": (round(lag_mean_effective, 6) if lag_mean_effective is not None else None),
+            "official_to_media_lag_days_q50": (round(percentile(effective_lag_values, 50), 6) if effective_lag_values else None),
             "official_source_share": round(official_share, 6),  # type: ignore
             "official_primary_share": round(official_primary_share, 6),  # type: ignore
             "pair_total": pair_total,
@@ -219,6 +256,8 @@ def summarize_mechanism_signals(
             "pair_strict_positive_lag_events": pair_positive,
             "pair_proxy_strict_positive_lag_events": pair_proxy_positive,
             "pair_lag_observed_events": pair_lag_observed,
+            "pair_lag_observed_events_strict_with_values": len(strict_pair_lag_values),
+            "pair_strict_lag_days_q50": (round(percentile(strict_pair_lag_values, 50), 6) if strict_pair_lag_values else None),
             "pair_resolved_publisher_events": pair_publisher_resolved,
             "pair_official_events_with_strict_followup": pair_official_with_followup,
             "historical_ufo_events_total": hist_total,
