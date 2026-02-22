@@ -1,24 +1,46 @@
 {
-  "run_id": "20260222T034226Z",
-  "generated_at": "2026-02-22T03:42:26.293668+00:00",
+  "run_id": "20260222T034424Z",
+  "generated_at": "2026-02-22T03:44:24.211640+00:00",
   "history_file": "/Volumes/Seagate/外星人事件/data/historical_backfill_runs.json",
   "selected_run_ids": [
     "20260222T015947Z"
   ],
   "selected_queries": [
+    "crisis",
     "ufo"
   ],
   "failure_cooldown_hours": 0.0,
   "slice_days": 7,
   "schedule_order": "shortest",
-  "jobs_total_before_history_filter": 2,
-  "jobs_total": 2,
-  "skipped_by_history": 0,
-  "skipped_jobs": [],
+  "jobs_total_before_history_filter": 6,
+  "jobs_total": 4,
+  "skipped_by_history": 2,
+  "skipped_jobs": [
+    {
+      "query": "ufo",
+      "start": "2002-12-31",
+      "end": "2002-12-31",
+      "policy": "strict-balanced",
+      "reason": "already_full_success",
+      "last_status": "full_success",
+      "last_age_hours": 0.033,
+      "source_run_id": "20260222T015947Z"
+    },
+    {
+      "query": "ufo",
+      "start": "2003-12-31",
+      "end": "2003-12-31",
+      "policy": "strict-balanced",
+      "reason": "already_full_success",
+      "last_status": "full_success",
+      "last_age_hours": 0.033,
+      "source_run_id": "20260222T015947Z"
+    }
+  ],
   "jobs": [
     {
       "job_index": 1,
-      "query": "ufo",
+      "query": "crisis",
       "start": "2002-12-31",
       "end": "2002-12-31",
       "policy": "strict-balanced",
@@ -31,16 +53,16 @@
         "skipped_existing_rows": 0,
         "skipped_all_zero_days": 0,
         "skipped_failed_days": 0,
-        "ufo_nonzero_days": 1,
-        "crisis_nonzero_days": 0,
+        "ufo_nonzero_days": 0,
+        "crisis_nonzero_days": 1,
         "failed_chunks_total": 0,
         "google_fallback_enabled": true,
         "google_fallback_days_total": 1,
         "google_fallback_queries_used": [
-          "ufo"
+          "crisis"
         ],
         "source_mode_breakdown_by_query": {
-          "ufo": {
+          "crisis": {
             "google_news_rss": 1
           }
         }
@@ -48,7 +70,7 @@
     },
     {
       "job_index": 2,
-      "query": "ufo",
+      "query": "crisis",
       "start": "2003-12-31",
       "end": "2003-12-31",
       "policy": "strict-balanced",
@@ -62,25 +84,85 @@
         "skipped_all_zero_days": 0,
         "skipped_failed_days": 0,
         "ufo_nonzero_days": 0,
-        "crisis_nonzero_days": 0,
+        "crisis_nonzero_days": 1,
         "failed_chunks_total": 0,
         "google_fallback_enabled": true,
         "google_fallback_days_total": 1,
         "google_fallback_queries_used": [
-          "ufo"
+          "crisis"
         ],
         "source_mode_breakdown_by_query": {
-          "ufo": {
+          "crisis": {
             "google_news_rss": 1
+          }
+        }
+      }
+    },
+    {
+      "job_index": 3,
+      "query": "crisis",
+      "start": "2002-01-01",
+      "end": "2002-01-07",
+      "policy": "strict-balanced",
+      "source_run_id": "20260222T015947Z",
+      "status": "full_success",
+      "returncode": 0,
+      "backfill_stats": {
+        "inserted_rows": 0,
+        "updated_rows": 7,
+        "skipped_existing_rows": 0,
+        "skipped_all_zero_days": 0,
+        "skipped_failed_days": 0,
+        "ufo_nonzero_days": 0,
+        "crisis_nonzero_days": 6,
+        "failed_chunks_total": 0,
+        "google_fallback_enabled": true,
+        "google_fallback_days_total": 7,
+        "google_fallback_queries_used": [
+          "crisis"
+        ],
+        "source_mode_breakdown_by_query": {
+          "crisis": {
+            "google_news_rss": 7
+          }
+        }
+      }
+    },
+    {
+      "job_index": 4,
+      "query": "crisis",
+      "start": "2002-01-08",
+      "end": "2002-01-14",
+      "policy": "strict-balanced",
+      "source_run_id": "20260222T015947Z",
+      "status": "full_success",
+      "returncode": 0,
+      "backfill_stats": {
+        "inserted_rows": 0,
+        "updated_rows": 7,
+        "skipped_existing_rows": 0,
+        "skipped_all_zero_days": 0,
+        "skipped_failed_days": 0,
+        "ufo_nonzero_days": 0,
+        "crisis_nonzero_days": 3,
+        "failed_chunks_total": 0,
+        "google_fallback_enabled": true,
+        "google_fallback_days_total": 7,
+        "google_fallback_queries_used": [
+          "crisis"
+        ],
+        "source_mode_breakdown_by_query": {
+          "crisis": {
+            "google_news_rss": 7
           }
         }
       }
     }
   ],
   "stats": {
-    "executed": 2,
+    "executed": 4,
     "dry_run": false,
-    "full_success": 2,
+    "full_success": 4,
     "partial_success": 0,
     "failed": 0
   }
