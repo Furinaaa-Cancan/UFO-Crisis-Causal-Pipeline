@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "新闻来源配置文件 — 多类型、多机构综合覆盖",
-    "last_updated": "2026-02-22-rev5-official-history-depth",
+    "last_updated": "2026-02-22-rev6-official-depth-max500",
     "feed_types": [
       "rss",
       "reddit_json"
@@ -161,15 +161,15 @@
     },
     {
       "name": "Pentagon / DoD 新闻稿",
-      "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=9&Site=945&max=200",
+      "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=9&Site=945&max=500",
       "type": "rss",
       "category": "ufo",
       "weight": 3,
       "note": "美国国防部官方新闻稿（优先 Releases feed，提升 max 抓取深度并带多重 fallback）",
       "active": true,
       "fallback_urls": [
-        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=200",
-        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=120"
+        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=500",
+        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=300"
       ]
     },
     {
@@ -322,15 +322,15 @@
     },
     {
       "name": "DoD 新闻发布（官方扩展）",
-      "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=9&Site=945&max=200",
+      "url": "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=9&Site=945&max=500",
       "type": "rss",
       "category": "crisis",
       "weight": 3,
       "note": "DoD 官方 Releases 源（危机窗口官方发布监测，提升 max 抓取深度）",
       "active": true,
       "fallback_urls": [
-        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=200",
-        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=120"
+        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=500",
+        "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1&Site=945&max=300"
       ]
     },
     {

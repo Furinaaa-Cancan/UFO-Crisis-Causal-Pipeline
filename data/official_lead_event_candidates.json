@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-02-22T05:01:46.446767+00:00",
+  "generated_at": "2026-02-22T05:07:24.761669+00:00",
   "summary": {
-    "total_ufo_events": 3,
-    "with_official_source": 0,
+    "total_ufo_events": 4,
+    "with_official_source": 1,
     "with_media_source": 3,
     "with_lag_days": 0,
     "with_lag_hours": 0,
@@ -12,10 +12,35 @@
       {
         "reason": "no_official_source_in_timeline",
         "count": 3
+      },
+      {
+        "reason": "no_media_source_in_timeline",
+        "count": 1
       }
     ]
   },
   "events": [
+    {
+      "claim_fingerprint": "64812b58d1726809",
+      "date": "2024-11-14",
+      "title": "Department of Defense Releases the Annual Report on Unidentified Anomalous Phenomena (UAP)",
+      "cluster_size": 2,
+      "primary_source": "Pentagon / DoD 新闻稿",
+      "first_official_date": "2024-11-14",
+      "first_media_date": null,
+      "first_official_published_at": "2024-11-14T17:02:00+00:00",
+      "first_media_published_at": null,
+      "official_to_media_lag_days": null,
+      "official_to_media_lag_hours": null,
+      "official_media_lag_basis": "none",
+      "official_timeline_observations": 2,
+      "media_timeline_observations": 0,
+      "official_timeline_timestamp_observations": 2,
+      "media_timeline_timestamp_observations": 0,
+      "lead_nonnegative_day": false,
+      "lead_strict_candidate": false,
+      "diagnostic_reason": "no_media_source_in_timeline"
+    },
     {
       "claim_fingerprint": "fed8dc8c4f9dfd64",
       "date": "2026-02-20",
