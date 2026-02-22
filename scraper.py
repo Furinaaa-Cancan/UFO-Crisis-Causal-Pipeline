@@ -32,6 +32,7 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "data")
 SCRAPED_FILE = os.path.join(OUTPUT_DIR, "scraped_news.json")
 SOURCES_FILE = os.path.join(OUTPUT_DIR, "sources.json")
 EVENTS_V2_FILE = os.path.join(OUTPUT_DIR, "events_v2.json")
+OFFICIAL_LEAD_DIAG_FILE = os.path.join(OUTPUT_DIR, "official_lead_event_candidates.json")
 
 REQUEST_TIMEOUT = 20
 REQUEST_RETRIES = 3
@@ -405,10 +406,29 @@ def parse_iso_date(date_str):
         return None
 
 
-def parse_feed_date(date_str):
-    """解析 RSS/Atom 日期；失败返回 (None, False)"""
+def parse_iso_datetime(datetime_str):
+    if not datetime_str:
+        return None
+    raw = str(datetime_str).strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt
+
+
+def parse_feed_datetime(date_str):
+    """解析 RSS/Atom 日期；返回 (YYYY-MM-DD, published_at_iso_utc, parsed_ok)"""
     if not date_str:
-        return None, False
+        return None, None, False
 
     for parser_fn in (
         lambda s: parsedate_to_datetime(s),
@@ -416,15 +436,25 @@ def parse_feed_date(date_str):
     ):
         try:  # type: ignore
             parsed = parser_fn(date_str)  # type: ignore
-            if parsed.tzinfo:  # type: ignore
-                parsed = parsed.astimezone(tz=None).replace(tzinfo=None)  # type: ignore
-            return parsed.date().isoformat(), True  # type: ignore
+            if parsed.tzinfo is None:  # type: ignore
+                parsed_utc = parsed.replace(tzinfo=timezone.utc)  # type: ignore
+            else:
+                parsed_utc = parsed.astimezone(timezone.utc)  # type: ignore
+            return parsed_utc.date().isoformat(), parsed_utc.isoformat(), True  # type: ignore
         except Exception:
             continue
+
     try:
-        return datetime.strptime(date_str[:10], "%Y-%m-%d").date().isoformat(), True  # type: ignore
+        d = datetime.strptime(date_str[:10], "%Y-%m-%d").date()  # type: ignore
+        return d.isoformat(), None, True  # type: ignore
     except Exception:
-        return None, False
+        return None, None, False
+
+
+def parse_feed_date(date_str):
+    """兼容旧逻辑：仅返回日期与解析状态"""
+    date_iso, _, parsed_ok = parse_feed_datetime(date_str)
+    return date_iso, parsed_ok
 
 
 def canonicalize_url(url):
@@ -646,7 +676,7 @@ def fetch_rss_url(url, source, max_items_per_source):
             if not link_text and id_tag:
                 link_text = normalize_text(id_tag.get_text(strip=True))
 
-            date_iso, parsed_ok = parse_feed_date(raw_date)
+            date_iso, published_at, parsed_ok = parse_feed_datetime(raw_date)
             canonical_url = canonicalize_url(link_text)
             domain = urlsplit(canonical_url).netloc.lower() if canonical_url else ""
 
@@ -660,6 +690,7 @@ def fetch_rss_url(url, source, max_items_per_source):
                 "weight": source.get("weight", 1),  # type: ignore
                 "title": title_text,
                 "date": date_iso or "",
+                "published_at": published_at,
                 "raw_date": raw_date,
                 "date_parsed_ok": parsed_ok,
                 "url": canonical_url,  # type: ignore
@@ -728,13 +759,17 @@ def fetch_reddit_json(source, max_items_per_source):
 
             created = p.get("created_utc")  # type: ignore
             date_iso = None
+            published_at = None
             parsed_ok = False
             if created:
                 try:
-                    date_iso = datetime.fromtimestamp(created, tz=timezone.utc).date().isoformat()  # type: ignore
+                    dt = datetime.fromtimestamp(created, tz=timezone.utc)  # type: ignore
+                    date_iso = dt.date().isoformat()  # type: ignore
+                    published_at = dt.isoformat()  # type: ignore
                     parsed_ok = True
                 except Exception:
                     date_iso = None
+                    published_at = None
 
             url = canonicalize_url(p.get("url", ""))  # type: ignore
             domain = urlsplit(url).netloc.lower() if url else ""
@@ -746,6 +781,7 @@ def fetch_reddit_json(source, max_items_per_source):
                 "weight": source.get("weight", 1),  # type: ignore
                 "title": title,
                 "date": date_iso or "",
+                "published_at": published_at,
                 "raw_date": str(created or ""),
                 "date_parsed_ok": parsed_ok,
                 "url": url,
@@ -1083,16 +1119,18 @@ def build_corroboration_timeline(group):
     for item in group:
         source = str(item.get("source", "") or "")
         date = str(item.get("date", "") or "")
+        published_at = str(item.get("published_at", "") or "")
         url = str(item.get("url", "") or "")
         if not source and not date:
             continue
-        k = (source, date, url)
+        k = (source, date, published_at, url)
         if k in seen:
             continue
         seen.add(k)
         timeline.append({
             "source": source,
             "date": date,
+            "published_at": published_at,
             "source_type": str(item.get("source_type", "") or ""),
             "weight": int(item.get("weight", 1) or 1),
             "url": url,
@@ -1101,6 +1139,8 @@ def build_corroboration_timeline(group):
 
     timeline.sort(
         key=lambda x: (
+            x.get("published_at", "") == "",
+            x.get("published_at", ""),  # type: ignore
             x.get("date", "") == "",
             x.get("date", ""),  # type: ignore
             -int(x.get("weight", 1) or 1),  # type: ignore
@@ -1115,33 +1155,59 @@ def enrich_official_media_timeline_metrics(event):
     official_dates = []
     media_dates_rss = []
     media_dates_any = []
+    official_dt = []
+    media_dt_rss = []
+    media_dt_any = []
     for row in timeline:
         d = parse_iso_date(row.get("date"))  # type: ignore
+        dt = parse_iso_datetime(row.get("published_at"))  # type: ignore
         if d is None:
             continue
         if bool(row.get("is_official_source")):  # type: ignore
             official_dates.append(d)
+            if dt is not None:
+                official_dt.append(dt)
             continue
         media_dates_any.append(d)  # type: ignore
+        if dt is not None:
+            media_dt_any.append(dt)
         if row.get("source_type") == "rss":  # type: ignore
             media_dates_rss.append(d)
+            if dt is not None:
+                media_dt_rss.append(dt)
 
     media_dates = media_dates_rss if media_dates_rss else media_dates_any
+    media_dates_dt = media_dt_rss if media_dt_rss else media_dt_any
     first_official = min(official_dates).isoformat() if official_dates else None  # type: ignore
     first_media = min(media_dates).isoformat() if media_dates else None  # type: ignore
+    first_official_dt = min(official_dt).isoformat() if official_dt else None  # type: ignore
+    first_media_dt = min(media_dates_dt).isoformat() if media_dates_dt else None  # type: ignore
 
     lag_days = None
+    lag_hours = None
     official_leads = None
+    official_leads_ts = None
     if first_official and first_media:
         lag_days = (parse_iso_date(first_media) - parse_iso_date(first_official)).days  # type: ignore
         official_leads = lag_days >= 0
+    if first_official_dt and first_media_dt:
+        lag_hours = round((parse_iso_datetime(first_media_dt) - parse_iso_datetime(first_official_dt)).total_seconds() / 3600.0, 3)  # type: ignore
+        official_leads_ts = lag_hours >= 0
+    lag_basis = "timestamp" if lag_hours is not None else ("date" if lag_days is not None else "none")
 
     event["first_official_date"] = first_official  # type: ignore
     event["first_media_date"] = first_media  # type: ignore
+    event["first_official_published_at"] = first_official_dt  # type: ignore
+    event["first_media_published_at"] = first_media_dt  # type: ignore
     event["official_to_media_lag_days"] = lag_days  # type: ignore
+    event["official_to_media_lag_hours"] = lag_hours  # type: ignore
     event["official_leads_media"] = official_leads  # type: ignore
+    event["official_leads_media_by_timestamp"] = official_leads_ts  # type: ignore
+    event["official_media_lag_basis"] = lag_basis  # type: ignore
     event["official_timeline_observations"] = len(official_dates)  # type: ignore
     event["media_timeline_observations"] = len(media_dates)  # type: ignore
+    event["official_timeline_timestamp_observations"] = len(official_dt)  # type: ignore
+    event["media_timeline_timestamp_observations"] = len(media_dates_dt)  # type: ignore
     return event
 
 
@@ -1342,6 +1408,103 @@ def split_and_sort_news(items):
         reverse=True,
     )
     return ufo_news, crisis_news
+
+
+def classify_official_lead_reason(event):
+    off_obs = int(event.get("official_timeline_observations", 0) or 0)  # type: ignore
+    med_obs = int(event.get("media_timeline_observations", 0) or 0)  # type: ignore
+    lag_days = event.get("official_to_media_lag_days")  # type: ignore
+    lag_hours = event.get("official_to_media_lag_hours")  # type: ignore
+
+    if off_obs <= 0:
+        return "no_official_source_in_timeline"
+    if med_obs <= 0:
+        return "no_media_source_in_timeline"
+    if lag_days is None:
+        return "missing_lag_day_signal"
+    if isinstance(lag_hours, (int, float)) and lag_hours < 0:
+        return "media_leads_by_timestamp"
+    if lag_days < 0:
+        return "media_leads_by_day"
+    if lag_days == 0 and lag_hours is None:
+        return "same_day_without_timestamp"
+    if lag_days == 0 and isinstance(lag_hours, (int, float)) and lag_hours == 0:
+        return "same_timestamp_tie"
+    if lag_days == 0:
+        return "official_leads_same_day_by_timestamp"
+    return "official_leads_cross_day"
+
+
+def build_official_lead_diagnostics(ufo_news):
+    rows = []
+    reason_counter = Counter()
+    for e in ufo_news:
+        reason = classify_official_lead_reason(e)
+        reason_counter[reason] += 1  # type: ignore
+        lag_days = e.get("official_to_media_lag_days")  # type: ignore
+        lag_hours = e.get("official_to_media_lag_hours")  # type: ignore
+        lead_nonnegative_day = isinstance(lag_days, (int, float)) and lag_days >= 0
+        lead_strict = (
+            (isinstance(lag_days, (int, float)) and lag_days > 0)
+            or (lag_days == 0 and isinstance(lag_hours, (int, float)) and lag_hours > 0)
+        )
+        rows.append({
+            "claim_fingerprint": e.get("claim_fingerprint"),  # type: ignore
+            "date": e.get("date"),  # type: ignore
+            "title": e.get("title"),  # type: ignore
+            "cluster_size": int(e.get("cluster_size", 1) or 1),  # type: ignore
+            "primary_source": e.get("primary_source"),  # type: ignore
+            "first_official_date": e.get("first_official_date"),  # type: ignore
+            "first_media_date": e.get("first_media_date"),  # type: ignore
+            "first_official_published_at": e.get("first_official_published_at"),  # type: ignore
+            "first_media_published_at": e.get("first_media_published_at"),  # type: ignore
+            "official_to_media_lag_days": lag_days,
+            "official_to_media_lag_hours": lag_hours,
+            "official_media_lag_basis": e.get("official_media_lag_basis"),  # type: ignore
+            "official_timeline_observations": int(e.get("official_timeline_observations", 0) or 0),  # type: ignore
+            "media_timeline_observations": int(e.get("media_timeline_observations", 0) or 0),  # type: ignore
+            "official_timeline_timestamp_observations": int(e.get("official_timeline_timestamp_observations", 0) or 0),  # type: ignore
+            "media_timeline_timestamp_observations": int(e.get("media_timeline_timestamp_observations", 0) or 0),  # type: ignore
+            "lead_nonnegative_day": bool(lead_nonnegative_day),
+            "lead_strict_candidate": bool(lead_strict),
+            "diagnostic_reason": reason,
+        })
+
+    rows.sort(
+        key=lambda x: (
+            0 if x.get("lead_strict_candidate") else 1,  # type: ignore
+            0 if x.get("lead_nonnegative_day") else 1,  # type: ignore
+            -(x.get("official_to_media_lag_days") or -999),  # type: ignore
+            -(x.get("cluster_size") or 1),  # type: ignore
+            x.get("date", "") or "",  # type: ignore
+        )
+    )
+
+    total = len(rows)
+    with_official = sum(1 for r in rows if int(r.get("official_timeline_observations", 0) or 0) > 0)
+    with_media = sum(1 for r in rows if int(r.get("media_timeline_observations", 0) or 0) > 0)
+    with_lag_day = sum(1 for r in rows if isinstance(r.get("official_to_media_lag_days"), (int, float)))
+    with_lag_hour = sum(1 for r in rows if isinstance(r.get("official_to_media_lag_hours"), (int, float)))
+    lead_nonnegative_day = sum(1 for r in rows if bool(r.get("lead_nonnegative_day")))
+    lead_strict = sum(1 for r in rows if bool(r.get("lead_strict_candidate")))
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
+        "summary": {
+            "total_ufo_events": total,
+            "with_official_source": with_official,
+            "with_media_source": with_media,
+            "with_lag_days": with_lag_day,
+            "with_lag_hours": with_lag_hour,
+            "official_leads_nonnegative_day_events": lead_nonnegative_day,
+            "official_lead_strict_candidates": lead_strict,
+            "top_blockers": [
+                {"reason": reason, "count": count}
+                for reason, count in reason_counter.most_common(10)
+            ],
+        },
+        "events": rows[:200],
+    }
 
 
 def print_source_summary(sources, counts, errors):
@@ -1606,6 +1769,7 @@ def scrape_all(
 
     rejected_items = dedupe_rejected + base_rejected + policy_rejected
     ufo_news, crisis_news = split_and_sort_news(accepted_events)
+    official_lead_diag = build_official_lead_diagnostics(ufo_news)
     source_stats = [source_records.get(src["name"]) for src in sources if source_records.get(src["name"])]  # type: ignore
     source_health = build_source_health_report(source_meta, all_sources, sources, source_stats)
     coverage_audit = build_coverage_audit(
@@ -1662,6 +1826,10 @@ def scrape_all(
                 "未来日期、日期解析失败、超出时间窗口的条目会被直接剔除",
             ],
         },
+        "official_lead_diagnostics": {
+            "summary": official_lead_diag.get("summary", {}),  # type: ignore
+            "file": OFFICIAL_LEAD_DIAG_FILE,
+        },
         "ufo_news": ufo_news,
         "crisis_news": crisis_news,
         "rejected_news": rejected_items,
@@ -1670,12 +1838,15 @@ def scrape_all(
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     with open(SCRAPED_FILE, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)  # type: ignore
+    with open(OFFICIAL_LEAD_DIAG_FILE, "w", encoding="utf-8") as f:
+        json.dump(official_lead_diag, f, ensure_ascii=False, indent=2)  # type: ignore
 
     console.print(  # type: ignore
         f"\n[green]✓ 抓取完成：UFO [bold]{len(ufo_news)}[/bold] 条，"  # type: ignore
         f"政治危机 [bold]{len(crisis_news)}[/bold] 条（policy={policy_name}）[/green]"
     )
     console.print(f"[green]✓ 数据已保存至 {SCRAPED_FILE}[/green]")  # type: ignore
+    console.print(f"[green]✓ 机制诊断已保存至 {OFFICIAL_LEAD_DIAG_FILE}[/green]")  # type: ignore
     return output
 
 

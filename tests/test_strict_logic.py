@@ -590,6 +590,82 @@ class TestStrictLogic(unittest.TestCase):
         self.assertTrue(e.get("official_leads_media"))
         self.assertGreaterEqual(len(e.get("corroboration_timeline", [])), 2)
 
+    def test_parse_feed_datetime_returns_utc_timestamp(self):
+        d, ts, ok = scraper.parse_feed_datetime("Wed, 02 Oct 2002 13:00:00 GMT")
+        self.assertTrue(ok)
+        self.assertEqual(d, "2002-10-02")
+        self.assertTrue(str(ts).startswith("2002-10-02T13:00:00"))
+
+    def test_collapse_claim_clusters_uses_timestamp_lag_when_available(self):
+        items = [
+            {
+                "category": "ufo",
+                "claim_fingerprint": "fp-ufo-lag-ts",
+                "title": "DoD memo",
+                "description": "official",
+                "date": "2026-02-20",
+                "published_at": "2026-02-20T10:00:00+00:00",
+                "source": "Pentagon / DoD 新闻稿",
+                "source_type": "rss",
+                "domain": "defense.gov",
+                "url": "https://defense.gov/a",
+                "weight": 3,
+                "authenticity": {"final_score": 90},
+            },
+            {
+                "category": "ufo",
+                "claim_fingerprint": "fp-ufo-lag-ts",
+                "title": "NYT follow-up",
+                "description": "media",
+                "date": "2026-02-20",
+                "published_at": "2026-02-20T18:30:00+00:00",
+                "source": "NYT 美国新闻",
+                "source_type": "rss",
+                "domain": "nytimes.com",
+                "url": "https://nytimes.com/b",
+                "weight": 3,
+                "authenticity": {"final_score": 88},
+            },
+        ]
+        collapsed = scraper.collapse_claim_clusters(items)
+        self.assertEqual(len(collapsed), 1)
+        e = collapsed[0]
+        self.assertEqual(e.get("official_media_lag_basis"), "timestamp")
+        self.assertEqual(e.get("official_to_media_lag_days"), 0)
+        self.assertAlmostEqual(float(e.get("official_to_media_lag_hours", 0.0)), 8.5, places=3)
+        self.assertTrue(e.get("official_leads_media_by_timestamp"))
+
+    def test_build_official_lead_diagnostics_counts_blockers_and_candidates(self):
+        ufo_news = [
+            {
+                "title": "lead",
+                "date": "2026-02-20",
+                "official_timeline_observations": 1,
+                "media_timeline_observations": 1,
+                "official_to_media_lag_days": 2,
+                "official_to_media_lag_hours": 36.0,
+                "cluster_size": 2,
+            },
+            {
+                "title": "no official",
+                "date": "2026-02-20",
+                "official_timeline_observations": 0,
+                "media_timeline_observations": 1,
+                "official_to_media_lag_days": None,
+                "official_to_media_lag_hours": None,
+                "cluster_size": 1,
+            },
+        ]
+        diag = scraper.build_official_lead_diagnostics(ufo_news)
+        summary = diag.get("summary", {})
+        self.assertEqual(summary.get("total_ufo_events"), 2)
+        self.assertEqual(summary.get("official_lead_strict_candidates"), 1)
+        self.assertEqual(summary.get("with_official_source"), 1)
+        self.assertEqual(summary.get("with_lag_days"), 1)
+        reasons = {x.get("reason") for x in summary.get("top_blockers", [])}
+        self.assertIn("no_official_source_in_timeline", reasons)
+        self.assertIn("official_leads_cross_day", reasons)
+
     def test_historical_backfill_build_row_shapes_panel_fields(self):
         row = historical_backfill.build_row(
             day_iso="2020-01-02",

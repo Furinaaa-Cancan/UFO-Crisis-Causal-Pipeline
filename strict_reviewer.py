@@ -31,6 +31,7 @@ MODEL_EVENT_FILE = DATA_DIR / "model_event_study_report.json"
 MODEL_SYNTH_FILE = DATA_DIR / "model_synth_control_report.json"
 MODEL_CAUSAL_ML_FILE = DATA_DIR / "model_causal_ml_report.json"
 EVENTS_V2_FILE = DATA_DIR / "events_v2.json"
+OFFICIAL_LEAD_DIAG_FILE = DATA_DIR / "official_lead_event_candidates.json"
 OUT_FILE = DATA_DIR / "strict_review_snapshot.json"
 
 OFFICIAL_SOURCE_HINTS = (
@@ -373,6 +374,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     synth = read_json(MODEL_SYNTH_FILE)
     causal_ml = read_json(MODEL_CAUSAL_ML_FILE)
     events_v2 = read_json(EVENTS_V2_FILE)
+    official_lead_diag = read_json(OFFICIAL_LEAD_DIAG_FILE)
     prev_snapshot = read_json(OUT_FILE)
 
     approval = causal.get("approval", {})  # type: ignore
@@ -511,6 +513,10 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
                 "causal_ml_status": causal_ml_status,
                 "causal_ml_passed": causal_ml_passed,
             },
+            "official_lead_diagnostics": {
+                "available": bool(official_lead_diag),
+                "summary": official_lead_diag.get("summary", {}) if isinstance(official_lead_diag, dict) else {},
+            },
         },
         "gates": {
             "core_passed": core_passed,
@@ -590,6 +596,14 @@ def main() -> None:
         f"ufo_events={report['mechanism_historical']['metrics']['ufo_events_total']}, "
         f"government_action_share={report['mechanism_historical']['metrics']['government_action_share']}"
     )  # type: ignore
+    lead_diag_summary = report.get("quality", {}).get("official_lead_diagnostics", {}).get("summary", {})  # type: ignore
+    if lead_diag_summary:
+        print(
+            "official_lead_diagnostics: "
+            f"strict_candidates={lead_diag_summary.get('official_lead_strict_candidates')}, "
+            f"with_lag_days={lead_diag_summary.get('with_lag_days')}, "
+            f"total_ufo={lead_diag_summary.get('total_ufo_events')}"
+        )
     print(f"[输出] {OUT_FILE}")  # type: ignore
 
 

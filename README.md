@@ -59,6 +59,7 @@
     ├── historical_backfill_runs.json # 历史回填累计运行历史（不可覆盖）
     ├── strict_dual_review.json # strict 双档稳定性评审
     ├── strict_review_snapshot.json # 统一严格评审快照
+    ├── official_lead_event_candidates.json # 官方先发/媒体跟进事件级诊断
     ├── model_did_report.json # DID 准实验输出
     ├── model_event_study_report.json # 事件研究动态效应输出
     ├── model_synth_control_report.json # 合成控制简化输出
@@ -259,9 +260,15 @@ python model_event_study.py --policy strict-balanced --permutations 2000 --max-s
 抓取结果中的 UFO 事件现在会输出机制字段（用于 stage_c）：
 - `first_official_date`
 - `first_media_date`
+- `first_official_published_at`
+- `first_media_published_at`
 - `official_to_media_lag_days`（>0 表示官方先发后媒体跟进）
+- `official_to_media_lag_hours`
+- `official_media_lag_basis`（timestamp/date/none）
 - `official_leads_media`
 - `corroboration_timeline`
+
+并会额外写出 `data/official_lead_event_candidates.json`，用于逐条审计“为何 official_lead_events 仍为 0”。
 
 对应结论等级：
 - `TEMPORAL_ASSOCIATION_ONLY`（仅相关）
