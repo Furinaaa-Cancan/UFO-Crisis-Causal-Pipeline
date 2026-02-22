@@ -11,6 +11,7 @@ import model_causal_ml
 import model_synth_control
 import panel_pipeline
 import historical_backfill
+import replay_backfill_failures
 import scraper
 import strict_reviewer
 
@@ -588,6 +589,68 @@ class TestStrictLogic(unittest.TestCase):
             retry_backoff_max=180.0,
         )
         self.assertAlmostEqual(s2, 60.0, places=5)
+
+    def test_replay_select_runs_for_replay(self):
+        runs = [
+            {"run_id": "r0", "stats": {"failed_chunks_total": 0}},
+            {"run_id": "r1", "stats": {"failed_chunks_total": 3}},
+            {"run_id": "r2", "stats": {"failed_chunks_total": 2}},
+        ]
+        picked = replay_backfill_failures.select_runs_for_replay(runs, run_id="", last_n_runs=1)
+        self.assertEqual([x["run_id"] for x in picked], ["r2"])
+        picked2 = replay_backfill_failures.select_runs_for_replay(runs, run_id="", last_n_runs=2)
+        self.assertEqual([x["run_id"] for x in picked2], ["r1", "r2"])
+        picked3 = replay_backfill_failures.select_runs_for_replay(runs, run_id="r1", last_n_runs=1)
+        self.assertEqual([x["run_id"] for x in picked3], ["r1"])
+
+    def test_replay_collect_failed_jobs_dedup_and_limit(self):
+        selected_runs = [
+            {
+                "run_id": "r1",
+                "policy": "strict-balanced",
+                "failed_chunks": {
+                    "ufo": [
+                        {"start": "1990-01-01", "end": "1990-01-03", "error": "x"},
+                        {"start": "1990-01-01", "end": "1990-01-03", "error": "dup"},
+                    ],
+                    "crisis": [
+                        {"start": "1990-01-02", "end": "1990-01-02", "error": "y"},
+                    ],
+                },
+            },
+            {
+                "run_id": "r2",
+                "policy": "strict-balanced",
+                "failed_chunks": {
+                    "ufo": [
+                        {"start": "1990-01-04", "end": "1990-01-05", "error": "z"},
+                    ],
+                },
+            },
+        ]
+        jobs = replay_backfill_failures.collect_failed_jobs(selected_runs, selected_queries=set(), max_chunks=0)
+        self.assertEqual(len(jobs), 3)
+        self.assertEqual(jobs[0]["query"], "crisis")
+        self.assertEqual(jobs[1]["query"], "ufo")
+        self.assertEqual(jobs[2]["query"], "ufo")
+
+        jobs2 = replay_backfill_failures.collect_failed_jobs(selected_runs, selected_queries={"ufo"}, max_chunks=1)
+        self.assertEqual(len(jobs2), 1)
+        self.assertEqual(jobs2[0]["query"], "ufo")
+
+    def test_replay_derive_job_status(self):
+        self.assertEqual(
+            replay_backfill_failures.derive_job_status(0, {"failed_chunks_total": 0}),
+            "full_success",
+        )
+        self.assertEqual(
+            replay_backfill_failures.derive_job_status(0, {"failed_chunks_total": 2}),
+            "partial_success",
+        )
+        self.assertEqual(
+            replay_backfill_failures.derive_job_status(1, {"failed_chunks_total": 0}),
+            "failed",
+        )
 
 
 if __name__ == "__main__":

@@ -303,11 +303,22 @@ python -u historical_backfill.py --start-date 1980-01-01 --end-date 1981-12-31 -
 - `data/causal_panel.json`（补充历史日度面板）
 - `data/historical_backfill_report.json`（回填范围、插入量、查询口径）
 - `data/historical_backfill_runs.json`（每次运行历史记录，便于审计失败分段）
+- `data/historical_backfill_replay_report.json`（失败分段重放报告）
+- `data/historical_backfill_replay_runs.json`（失败分段重放历史）
 
 说明：
 - 回填默认不覆盖实时抓取行（保护你当天的严格抓取快照）。
 - 回填数据用于样本扩充与稳健性检验，不替代事件级人工核查。
 - 分段失败日会按“缺失观测”跳过，不会被写成 0（避免伪零值污染因果分析）。
+
+失败分段自动重放（按历史 runs 里的 failed_chunks 自动续跑）：
+```bash
+# 回放最近 1 个失败 run 的全部失败分段
+python replay_backfill_failures.py --last-n-runs 1 --allow-partial --overwrite-backfill
+
+# 只回放 UFO/危机，并限制最多 5 个失败分段（先做小批量验证）
+python replay_backfill_failures.py --last-n-runs 1 --queries ufo,crisis --max-chunks 5 --allow-partial --overwrite-backfill --verbose-chunks
+```
 
 ### 9. 逻辑回归测试
 ```bash
