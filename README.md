@@ -61,6 +61,7 @@
     ├── historical_backfill_runs.json # 历史回填累计运行历史（不可覆盖）
     ├── strict_dual_review.json # strict 双档稳定性评审
     ├── strict_review_snapshot.json # 统一严格评审快照
+    ├── strict_review_runs.json # 统一严格评审累计运行历史（不可覆盖）
     ├── official_lead_event_candidates.json # 官方先发/媒体跟进事件级诊断
     ├── official_media_pairs.json # 官方-媒体机制配对（独立于主事件簇）
     ├── model_did_report.json # DID 准实验输出
@@ -254,6 +255,7 @@ python research_unified_pipeline.py --only-policy strict --model-policy strict
 ```
 统一输出：
 - `data/strict_review_snapshot.json`（当前研究等级 L0-L4）
+- `data/strict_review_runs.json`（评审 run-history，用于跨日复现审计）
 - `data/model_did_report.json`
 - `data/model_event_study_report.json`
 - `data/model_synth_control_report.json`

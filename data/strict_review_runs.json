@@ -1,0 +1,143 @@
+{
+  "updated_at": "2026-02-22T11:30:11.634093+00:00",
+  "runs": [
+    {
+      "generated_at": "2026-02-22T11:29:47.614005+00:00",
+      "research_level": "L3",
+      "decision": {
+        "verdict": "存在因果信号（中等强度，仍需外部对照验证）",
+        "approval_status": "APPROVED",
+        "approval_level": "CAUSAL_SIGNAL",
+        "expected_policy": "strict-balanced",
+        "observed_policies": {
+          "scraped_policy": "strict-balanced",
+          "causal_policy": "strict-balanced",
+          "progress_policy": "strict-balanced"
+        }
+      },
+      "gates": {
+        "core_passed": true,
+        "falsification_passed": true,
+        "approval_gate_passed": true,
+        "sample_gates_passed": true,
+        "directional_gates_passed": true,
+        "continuity_gate_passed": true,
+        "source_gate_passed": true,
+        "dual_stable_passed": true,
+        "policy_consistency_passed": true,
+        "mechanism_gate_passed": true,
+        "reproducibility_passed": false,
+        "gate_map": {
+          "panel_sufficient": true,
+          "panel_observed_days>=180": true,
+          "panel_shocks>=12": true,
+          "panel_observed_ratio>=0.85": true,
+          ">=2_significant_windows": true,
+          "lead_lag_positive": true,
+          "reverse_not_dominant": true
+        }
+      },
+      "inference": {
+        "stage_a_temporal_association": true,
+        "stage_b_causal_identification": true,
+        "stage_c_strategic_mechanism": true,
+        "level": "STRATEGIC_COMMUNICATION_INDICATION",
+        "conclusion": "因果与机制闸门均通过，存在策略性沟通迹象（非动机终局证据）。"
+      },
+      "meta": {
+        "signature": {
+          "approval_status": "APPROVED",
+          "approval_level": "CAUSAL_SIGNAL",
+          "core_passed": true,
+          "falsification_passed": true,
+          "policy_consistency_passed": true,
+          "did_passed": true,
+          "event_passed": true,
+          "synth_passed": true,
+          "causal_ml_passed": true,
+          "panel_observed_days": 12672,
+          "panel_shock_days": 705,
+          "dual_status": "stable",
+          "inference_level": "STRATEGIC_COMMUNICATION_INDICATION"
+        },
+        "previous_signature_exists": true,
+        "previous_generated_at": "2026-02-22T11:25:55.896273+00:00",
+        "cross_day_repeat": false,
+        "same_day_repeat": true,
+        "same_day_prev_repro_passed": false,
+        "repro_signature_matches": 1,
+        "latest_signature_match_generated_at": "2026-02-22T11:25:55.896273+00:00",
+        "history_runs_count": 0
+      }
+    },
+    {
+      "generated_at": "2026-02-22T11:30:11.631199+00:00",
+      "research_level": "L3",
+      "decision": {
+        "verdict": "存在因果信号（中等强度，仍需外部对照验证）",
+        "approval_status": "APPROVED",
+        "approval_level": "CAUSAL_SIGNAL",
+        "expected_policy": "strict-balanced",
+        "observed_policies": {
+          "scraped_policy": "strict-balanced",
+          "causal_policy": "strict-balanced",
+          "progress_policy": "strict-balanced"
+        }
+      },
+      "gates": {
+        "core_passed": true,
+        "falsification_passed": true,
+        "approval_gate_passed": true,
+        "sample_gates_passed": true,
+        "directional_gates_passed": true,
+        "continuity_gate_passed": true,
+        "source_gate_passed": true,
+        "dual_stable_passed": true,
+        "policy_consistency_passed": true,
+        "mechanism_gate_passed": true,
+        "reproducibility_passed": false,
+        "gate_map": {
+          "panel_sufficient": true,
+          "panel_observed_days>=180": true,
+          "panel_shocks>=12": true,
+          "panel_observed_ratio>=0.85": true,
+          ">=2_significant_windows": true,
+          "lead_lag_positive": true,
+          "reverse_not_dominant": true
+        }
+      },
+      "inference": {
+        "stage_a_temporal_association": true,
+        "stage_b_causal_identification": true,
+        "stage_c_strategic_mechanism": true,
+        "level": "STRATEGIC_COMMUNICATION_INDICATION",
+        "conclusion": "因果与机制闸门均通过，存在策略性沟通迹象（非动机终局证据）。"
+      },
+      "meta": {
+        "signature": {
+          "approval_status": "APPROVED",
+          "approval_level": "CAUSAL_SIGNAL",
+          "core_passed": true,
+          "falsification_passed": true,
+          "policy_consistency_passed": true,
+          "did_passed": true,
+          "event_passed": true,
+          "synth_passed": true,
+          "causal_ml_passed": true,
+          "panel_observed_days": 12672,
+          "panel_shock_days": 705,
+          "dual_status": "stable",
+          "inference_level": "STRATEGIC_COMMUNICATION_INDICATION"
+        },
+        "previous_signature_exists": true,
+        "previous_generated_at": "2026-02-22T11:29:47.614005+00:00",
+        "cross_day_repeat": false,
+        "same_day_repeat": true,
+        "same_day_prev_repro_passed": false,
+        "repro_signature_matches": 1,
+        "latest_signature_match_generated_at": "2026-02-22T11:29:47.614005+00:00",
+        "history_runs_count": 1
+      }
+    }
+  ]
+}

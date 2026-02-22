@@ -15,7 +15,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from utils import percentile  # type: ignore[import]
 
@@ -34,6 +34,7 @@ EVENTS_V2_FILE = DATA_DIR / "events_v2.json"
 OFFICIAL_LEAD_DIAG_FILE = DATA_DIR / "official_lead_event_candidates.json"
 OFFICIAL_MEDIA_PAIRS_FILE = DATA_DIR / "official_media_pairs.json"
 OUT_FILE = DATA_DIR / "strict_review_snapshot.json"
+OUT_HISTORY_FILE = DATA_DIR / "strict_review_runs.json"
 
 OFFICIAL_SOURCE_HINTS = (
     "white house",
@@ -79,6 +80,14 @@ def read_json(path: Path) -> Dict[str, Any]:
         return {}
     with path.open("r", encoding="utf-8") as f:  # type: ignore
         return json.load(f)  # type: ignore
+
+
+def load_history_runs(path: Path) -> List[Dict[str, Any]]:
+    payload = read_json(path)
+    runs = payload.get("runs", []) if isinstance(payload, dict) else []
+    if not isinstance(runs, list):
+        return []
+    return [r for r in runs if isinstance(r, dict)]
 
 
 def _gate_pass(gate_map: Dict[str, bool], prefix: str) -> bool:
@@ -480,23 +489,140 @@ def _parse_iso_ts(value: Any) -> datetime | None:
         return None
 
 
+def _collect_prior_signature_runs(
+    prev_snapshot: Dict[str, Any],
+    history_runs: List[Dict[str, Any]] | None,
+    signature: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    dedup = set()
+
+    def _push(entry: Dict[str, Any]) -> None:
+        ts = _parse_iso_ts(entry.get("generated_at"))
+        if not ts:
+            return
+        meta = entry.get("meta", {}) if isinstance(entry.get("meta"), dict) else {}
+        sig = meta.get("signature", entry.get("signature"))
+        if sig != signature:
+            return
+        repro = bool(
+            (entry.get("gates", {}).get("reproducibility_passed", False))
+            if isinstance(entry.get("gates"), dict)
+            else entry.get("reproducibility_passed", False)
+        )
+        key = (ts.isoformat(), json.dumps(sig, ensure_ascii=False, sort_keys=True))
+        if key in dedup:
+            return
+        dedup.add(key)
+        out.append(
+            {
+                "ts": ts,
+                "generated_at": entry.get("generated_at"),
+                "reproducibility_passed": repro,
+            }
+        )
+
+    if prev_snapshot:
+        _push(prev_snapshot)
+    for row in history_runs or []:
+        _push(row)
+
+    return out
+
+
+def reproducibility_diagnostics(
+    prev_snapshot: Dict[str, Any],
+    history_runs: List[Dict[str, Any]] | None,
+    signature: Dict[str, Any],
+    curr_ts: datetime | None,
+) -> Dict[str, Any]:
+    prior = _collect_prior_signature_runs(prev_snapshot, history_runs, signature)
+    if not curr_ts:
+        return {
+            "reproducibility_passed": False,
+            "cross_day_repeat": False,
+            "same_day_repeat": False,
+            "same_day_prev_repro_passed": False,
+            "matched_runs": len(prior),
+            "latest_match_generated_at": None,
+        }
+
+    same_day_repeat = any(r["ts"].date() == curr_ts.date() for r in prior)
+    cross_day_repeat = any(r["ts"].date() < curr_ts.date() for r in prior)
+    same_day_prev_repro_passed = any(
+        r["ts"].date() == curr_ts.date() and bool(r["reproducibility_passed"]) for r in prior
+    )
+    reproducibility_passed = cross_day_repeat or (same_day_repeat and same_day_prev_repro_passed)
+
+    latest_match_generated_at = None
+    if prior:
+        latest = max(prior, key=lambda x: x["ts"])
+        latest_match_generated_at = latest.get("generated_at")
+
+    return {
+        "reproducibility_passed": reproducibility_passed,
+        "cross_day_repeat": cross_day_repeat,
+        "same_day_repeat": same_day_repeat,
+        "same_day_prev_repro_passed": same_day_prev_repro_passed,
+        "matched_runs": len(prior),
+        "latest_match_generated_at": latest_match_generated_at,
+    }
+
+
 def evaluate_reproducibility(
     prev_snapshot: Dict[str, Any],
     signature: Dict[str, Any],
     curr_ts: datetime | None,
+    history_runs: List[Dict[str, Any]] | None = None,
 ) -> tuple[bool, bool, bool]:
-    prev_sig = prev_snapshot.get("meta", {}).get("signature") if prev_snapshot else None
-    if not prev_sig or prev_sig != signature:
-        return False, False, False
+    diag = reproducibility_diagnostics(prev_snapshot, history_runs, signature, curr_ts)
+    return bool(diag["reproducibility_passed"]), bool(diag["cross_day_repeat"]), bool(diag["same_day_repeat"])
 
-    prev_ts = _parse_iso_ts(prev_snapshot.get("generated_at")) if prev_snapshot else None
-    same_day_repeat = bool(prev_ts and curr_ts and prev_ts.date() == curr_ts.date())
-    cross_day_repeat = bool(prev_ts and curr_ts and prev_ts.date() < curr_ts.date())
-    prev_repro = bool(prev_snapshot.get("gates", {}).get("reproducibility_passed", False))
 
-    # Same-day rerun should not regress a previously achieved cross-day reproducibility.
-    reproducibility_passed = cross_day_repeat or (same_day_repeat and prev_repro)
-    return reproducibility_passed, cross_day_repeat, same_day_repeat
+def append_review_history(path: Path, report: Dict[str, Any]) -> None:
+    payload: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc).isoformat(), "runs": []}
+    if path.exists():  # type: ignore
+        try:
+            old = read_json(path)
+            if isinstance(old, dict) and isinstance(old.get("runs"), list):
+                payload["runs"] = old["runs"]  # type: ignore
+        except Exception:
+            payload["runs"] = []
+
+    run_row = {
+        "generated_at": report.get("generated_at"),
+        "research_level": report.get("research_level"),
+        "decision": report.get("decision", {}),
+        "gates": report.get("gates", {}),
+        "inference": report.get("inference", {}),
+        "meta": report.get("meta", {}),
+    }
+
+    runs = payload.get("runs", [])
+    if not isinstance(runs, list):
+        runs = []
+
+    dedup_key = (
+        str(run_row.get("generated_at")),
+        json.dumps(run_row.get("meta", {}).get("signature", {}), ensure_ascii=False, sort_keys=True),
+    )
+    existing_keys = set()
+    for row in runs:
+        if not isinstance(row, dict):
+            continue
+        existing_keys.add(
+            (
+                str(row.get("generated_at")),
+                json.dumps((row.get("meta", {}) if isinstance(row.get("meta"), dict) else {}).get("signature", {}), ensure_ascii=False, sort_keys=True),
+            )
+        )
+    if dedup_key not in existing_keys:
+        runs.append(run_row)
+
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    payload["runs"] = runs
+    with path.open("w", encoding="utf-8") as f:  # type: ignore
+        json.dump(payload, f, ensure_ascii=False, indent=2)  # type: ignore
 
 
 def classify_level(summary: Dict[str, Any]) -> str:
@@ -528,6 +654,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     official_lead_diag = read_json(OFFICIAL_LEAD_DIAG_FILE)
     official_media_pairs = read_json(OFFICIAL_MEDIA_PAIRS_FILE)
     prev_snapshot = read_json(OUT_FILE)
+    history_runs = load_history_runs(OUT_HISTORY_FILE)
 
     approval = causal.get("approval", {})  # type: ignore
     panel = causal.get("panel", {})  # type: ignore
@@ -709,18 +836,23 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
 
     signature = build_signature(summary)
     curr_ts = _parse_iso_ts(summary.get("generated_at"))  # type: ignore
-    reproducibility_passed, cross_day_repeat, same_day_repeat = evaluate_reproducibility(
+    repro_diag = reproducibility_diagnostics(
         prev_snapshot,
+        history_runs,
         signature,
         curr_ts,
     )
-    summary["gates"]["reproducibility_passed"] = reproducibility_passed  # type: ignore
+    summary["gates"]["reproducibility_passed"] = bool(repro_diag["reproducibility_passed"])  # type: ignore
     summary["meta"] = {  # type: ignore
         "signature": signature,
         "previous_signature_exists": bool(prev_snapshot.get("meta", {}).get("signature")) if prev_snapshot else False,
         "previous_generated_at": prev_snapshot.get("generated_at") if prev_snapshot else None,  # type: ignore
-        "cross_day_repeat": cross_day_repeat,
-        "same_day_repeat": same_day_repeat,
+        "cross_day_repeat": bool(repro_diag["cross_day_repeat"]),
+        "same_day_repeat": bool(repro_diag["same_day_repeat"]),
+        "same_day_prev_repro_passed": bool(repro_diag["same_day_prev_repro_passed"]),
+        "repro_signature_matches": int(repro_diag["matched_runs"]),
+        "latest_signature_match_generated_at": repro_diag["latest_match_generated_at"],
+        "history_runs_count": len(history_runs),
     }
     summary["research_level"] = classify_level(summary)  # type: ignore
     return summary
@@ -731,6 +863,7 @@ def main() -> None:
     report = build_review(args)
     with OUT_FILE.open("w", encoding="utf-8") as f:  # type: ignore
         json.dump(report, f, ensure_ascii=False, indent=2)  # type: ignore
+    append_review_history(OUT_HISTORY_FILE, report)
 
     print("=== Strict Unified Review ===")
     print(f"approval: {report['decision']['approval_status']} ({report['decision']['approval_level']})")  # type: ignore
@@ -804,6 +937,7 @@ def main() -> None:
             f"media_items={pair_summary.get('media_items_considered')}"
         )
     print(f"[输出] {OUT_FILE}")  # type: ignore
+    print(f"[输出] {OUT_HISTORY_FILE}")  # type: ignore
 
 
 if __name__ == "__main__":

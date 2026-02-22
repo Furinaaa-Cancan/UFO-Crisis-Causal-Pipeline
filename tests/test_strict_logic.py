@@ -719,6 +719,65 @@ class TestStrictLogic(unittest.TestCase):
         self.assertFalse(passed3)
         self.assertTrue(same_day3)
 
+    def test_reproducibility_history_supports_cross_day_match(self):
+        signature = {"approval_status": "APPROVED", "core_passed": True}
+        prev_snapshot = {}
+        history_runs = [
+            {
+                "generated_at": "2026-02-20T09:00:00+00:00",
+                "meta": {"signature": signature},
+                "gates": {"reproducibility_passed": False},
+            }
+        ]
+        curr_ts = strict_reviewer._parse_iso_ts("2026-02-21T09:00:00+00:00")
+        passed, cross_day, same_day = strict_reviewer.evaluate_reproducibility(
+            prev_snapshot,
+            signature,
+            curr_ts,
+            history_runs=history_runs,
+        )
+        self.assertTrue(passed)
+        self.assertTrue(cross_day)
+        self.assertFalse(same_day)
+
+    def test_reproducibility_history_same_day_needs_prev_repro_passed(self):
+        signature = {"approval_status": "APPROVED", "core_passed": True}
+        curr_ts = strict_reviewer._parse_iso_ts("2026-02-21T10:00:00+00:00")
+
+        history_runs_fail = [
+            {
+                "generated_at": "2026-02-21T09:00:00+00:00",
+                "meta": {"signature": signature},
+                "gates": {"reproducibility_passed": False},
+            }
+        ]
+        passed1, cross_day1, same_day1 = strict_reviewer.evaluate_reproducibility(
+            {},
+            signature,
+            curr_ts,
+            history_runs=history_runs_fail,
+        )
+        self.assertFalse(passed1)
+        self.assertFalse(cross_day1)
+        self.assertTrue(same_day1)
+
+        history_runs_pass = [
+            {
+                "generated_at": "2026-02-21T09:30:00+00:00",
+                "meta": {"signature": signature},
+                "gates": {"reproducibility_passed": True},
+            }
+        ]
+        passed2, cross_day2, same_day2 = strict_reviewer.evaluate_reproducibility(
+            {},
+            signature,
+            curr_ts,
+            history_runs=history_runs_pass,
+        )
+        self.assertTrue(passed2)
+        self.assertFalse(cross_day2)
+        self.assertTrue(same_day2)
+
     def test_coverage_audit_includes_source_recency_summary(self):
         raw_items = [
             {"source": "A", "date": "2026-02-21", "title": "x"},
