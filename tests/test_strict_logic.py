@@ -62,22 +62,27 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(review["current"]["overlap_days"], 1)
         self.assertEqual(review["current"]["excluded_non_run_day_rows"], 1)
 
-    def test_classify_level_l4_requires_reproducibility(self):
+    def test_classify_level_requires_reproducibility_for_l3_and_external_for_l4(self):
         summary = {
             "gates": {
                 "core_passed": True,
                 "falsification_passed": True,
                 "reproducibility_passed": True,
+                "external_replication_passed": False,
             },
             "signals": {
                 "has_temporal_signal": True,
                 "verdict_has_correlation_phrase": True,
             },
         }
-        self.assertEqual(strict_reviewer.classify_level(summary), "L4")
+        self.assertEqual(strict_reviewer.classify_level(summary), "L3")
 
         summary["gates"]["reproducibility_passed"] = False
-        self.assertEqual(strict_reviewer.classify_level(summary), "L3")
+        self.assertEqual(strict_reviewer.classify_level(summary), "L2")
+
+        summary["gates"]["reproducibility_passed"] = True
+        summary["gates"]["external_replication_passed"] = True
+        self.assertEqual(strict_reviewer.classify_level(summary), "L4")
 
     def test_collapse_claim_clusters_merges_same_day_crisis_event_signature(self):
         items = [

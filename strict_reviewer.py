@@ -665,15 +665,18 @@ def append_review_history(path: Path, report: Dict[str, Any]) -> None:
 
 
 def classify_level(summary: Dict[str, Any]) -> str:
-    if (
-        summary["gates"]["core_passed"]  # type: ignore
-        and summary["gates"]["falsification_passed"]  # type: ignore
-        and summary["gates"]["reproducibility_passed"]  # type: ignore
-    ):
+    core = bool(summary["gates"]["core_passed"])  # type: ignore
+    falsification = bool(summary["gates"]["falsification_passed"])  # type: ignore
+    reproducibility = bool(summary["gates"]["reproducibility_passed"])  # type: ignore
+    external_replication = bool(summary.get("gates", {}).get("external_replication_passed", False))  # type: ignore
+
+    # 对齐 STRICT_GATES：G1~G12 全通过 -> L3；L4 仅在额外跨样本复现实验通过时开放。
+    if core and falsification and reproducibility and external_replication:
         return "L4"
-    if summary["gates"]["core_passed"] and summary["gates"]["falsification_passed"]:  # type: ignore
+    if core and falsification and reproducibility:
         return "L3"
-    if summary["gates"]["core_passed"]:  # type: ignore
+    if core:
+        # 核心门槛通过但证伪链/复现链未闭环，最高 L2。
         return "L2"
     if summary["signals"]["has_temporal_signal"] or summary["signals"]["verdict_has_correlation_phrase"]:  # type: ignore
         return "L1"
@@ -715,12 +718,21 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
         avail >= args.min_source_availability and failed_sources <= allowed_failed_sources
     )
 
-    panel_observed_days = int(progress.get("current", {}).get("observed_days", panel.get("observed_days", 0)) or 0)  # type: ignore
-    panel_shock_days = int(progress.get("current", {}).get("shock_days", panel.get("n_shocks", 0)) or 0)  # type: ignore
-    observed_ratio = float(progress.get("current", {}).get("observed_ratio", panel.get("observed_ratio", 0.0)) or 0.0)  # type: ignore
+    progress_current = progress.get("current", {})  # type: ignore
+    if not isinstance(progress_current, dict):
+        progress_current = {}
+
+    # 质量面板优先使用 causal_report 的同批次统计，避免与 panel_progress 口径冲突。
+    panel_observed_days = int(panel.get("observed_days", progress_current.get("observed_days", 0)) or 0)  # type: ignore
+    panel_shock_days = int(panel.get("n_shocks", progress_current.get("shock_days", 0)) or 0)  # type: ignore
+    observed_ratio = float(panel.get("observed_ratio", progress_current.get("observed_ratio", 0.0)) or 0.0)  # type: ignore
     max_missing_streak = int(
-        progress.get("current", {}).get("max_missing_streak", panel.get("max_missing_streak", 0)) or 0  # type: ignore
+        panel.get("max_missing_streak", progress_current.get("max_missing_streak", 0)) or 0  # type: ignore
     )
+    progress_observed_days = int(progress_current.get("observed_days", 0) or 0)
+    progress_shock_days = int(progress_current.get("shock_days", 0) or 0)
+    progress_observed_ratio = float(progress_current.get("observed_ratio", 0.0) or 0.0)
+    progress_max_missing_streak = int(progress_current.get("max_missing_streak", 0) or 0)
     continuity_gate_passed = (
         observed_ratio >= args.min_observed_ratio and max_missing_streak <= args.max_missing_streak
     )
@@ -824,11 +836,16 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
             "source_failed_count": failed_sources,
             "source_total_active": total_active_sources,
             "source_allowed_failed_threshold": allowed_failed_sources,
-            "panel_status": progress.get("status", "unknown"),  # type: ignore
+            "panel_status": approval.get("status", progress.get("status", "unknown")),  # type: ignore
+            "panel_progress_status": progress.get("status", "unknown"),  # type: ignore
             "panel_observed_days": panel_observed_days,
             "panel_shock_days": panel_shock_days,
             "panel_observed_ratio": round(observed_ratio, 6),  # type: ignore
             "panel_max_missing_streak": max_missing_streak,
+            "panel_progress_observed_days": progress_observed_days,
+            "panel_progress_shock_days": progress_shock_days,
+            "panel_progress_observed_ratio": round(progress_observed_ratio, 6),  # type: ignore
+            "panel_progress_max_missing_streak": progress_max_missing_streak,
             "models": {
                 "did_status": did_status,
                 "did_passed": did_passed,
@@ -882,6 +899,22 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
         curr_ts,
     )
     summary["gates"]["reproducibility_passed"] = bool(repro_diag["reproducibility_passed"])  # type: ignore
+
+    generated_at = str(summary.get("generated_at", ""))
+    sig_key = json.dumps(signature, ensure_ascii=False, sort_keys=True)
+    history_has_same_run = False
+    for row in history_runs:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("generated_at", "")) != generated_at:
+            continue
+        row_meta = row.get("meta", {}) if isinstance(row.get("meta"), dict) else {}
+        row_sig = row_meta.get("signature", {})
+        if json.dumps(row_sig, ensure_ascii=False, sort_keys=True) == sig_key:
+            history_has_same_run = True
+            break
+
+    history_runs_count_after_write = len(history_runs) + (0 if history_has_same_run else 1)
     summary["meta"] = {  # type: ignore
         "signature": signature,
         "previous_signature_exists": bool(prev_snapshot.get("meta", {}).get("signature")) if prev_snapshot else False,
@@ -891,7 +924,8 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
         "same_day_prev_repro_passed": bool(repro_diag["same_day_prev_repro_passed"]),
         "repro_signature_matches": int(repro_diag["matched_runs"]),
         "latest_signature_match_generated_at": repro_diag["latest_match_generated_at"],
-        "history_runs_count": len(history_runs),
+        "history_runs_count_before_append": len(history_runs),
+        "history_runs_count": history_runs_count_after_write,
     }
     summary["research_level"] = classify_level(summary)  # type: ignore
     return summary
@@ -925,10 +959,12 @@ def main() -> None:
         f"official_share_live={report['mechanism']['metrics']['official_source_share']}, "
         f"official_share_effective={report['mechanism']['metrics']['effective_official_share']}, "
         f"official_lead_events={report['mechanism']['metrics']['official_lead_events']}, "
-        f"lag_observed={report['mechanism']['metrics']['lag_observed_events']}, "
+        f"lag_observed_live={report['mechanism']['metrics'].get('lag_observed_events_live')}, "
+        f"lag_observed_effective={report['mechanism']['metrics']['lag_observed_events']}, "
         f"pair_strict={report['mechanism']['metrics']['pair_strict']}, "
         f"pair_strict_positive={report['mechanism']['metrics']['pair_strict_positive_lag_events']}, "
-        f"lag_q50={report['mechanism']['metrics']['official_to_media_lag_days_q50']}, "
+        f"lag_q50_live={report['mechanism']['metrics'].get('official_to_media_lag_days_q50_live')}, "
+        f"lag_q50_effective={report['mechanism']['metrics']['official_to_media_lag_days_q50']}, "
         f"passed={report['mechanism']['mechanism_passed']}"
     )  # type: ignore
     print(

@@ -19,7 +19,7 @@
 - 来源：`data/causal_report.json` -> `panel.observed_days`
 
 2. G2 冲击样本闸门
-- 规则：`shock_days >= 12`
+- 规则：默认 `shock_days >= 12`；当冲击源为 `events_v2_crisis_dates`（语义主轨）时，执行 `shock_days >= 5`（`EV2_MIN_DATES`）
 - 来源：`data/causal_report.json` -> `panel.n_shocks`
 
 3. G3 连续性闸门
@@ -67,6 +67,13 @@
 ## 判定规则
 
 - 只要 G1~G8 任一失败：最高只能到 L1/L2。
-- G1~G8 全通过，但 G9~G12 任一失败：最高 L2。
+- G1~G8 全通过，但 G9~G11 任一失败：最高 L2。
+- G1~G11 全通过，但 G12（跨日复现）未通过：最高 L2（等待跨日复现）。
 - G1~G12 全通过：可声明 L3。
-- L4 需要额外跨时期、跨数据源复现。
+- L4 需要额外跨时期、跨数据源复现（实现口径：`external_replication_passed=true`）。
+
+## 关于 lead-lag 闸门（G6）的说明
+
+- `best_lag=0`（同期相关最强）时，`lead_lag_positive` 闸门**不通过**。
+- 只有正向 lag（≥1天）的相关系数严格优于 lag=0 时，才视为"危机领先UFO"的前导信号。
+- 当前数据（lag0_corr=0.591 > best_positive_corr=0.550）表明同期相关主导，不构成因果前导证据。

@@ -239,21 +239,29 @@ def main() -> None:
                                     out["metrics"]["att_gap"] = round(att, 6)  # type: ignore
                                     out["metrics"]["p_value"] = round(p_val, 6)  # type: ignore
                                     out["metrics"]["p_value_negative"] = round(p_neg, 6)  # type: ignore
-                                    out["gates"]["att_positive"] = att > 0  # type: ignore
-                                    out["gates"]["p_value_significant"] = p_val < 0.05  # type: ignore
+                                    att_positive = att > 0
+                                    p_sig = p_val < 0.05
+                                    # ATT 严格为正且显著 → 支持正向因果
+                                    positive_signal = att_positive and p_sig
+                                    # ATT 接近零（|att|<=0.05）且无显著负效应 → 中性，不反对
+                                    neutral_consistent = near_zero and no_sig_negative
+                                    # ATT < -0.05 → 反向证据，不通过（即使 p 不显著）
+                                    negative_evidence = att < -0.05
+
+                                    out["gates"]["att_positive"] = att_positive  # type: ignore
+                                    out["gates"]["p_value_significant"] = p_sig  # type: ignore
                                     out["gates"]["att_near_zero"] = near_zero  # type: ignore
                                     out["gates"]["no_significant_negative"] = no_sig_negative  # type: ignore
-                                    out["gates"]["synth_passed"] = (  # type: ignore
-                                        (out["gates"]["att_positive"] and out["gates"]["p_value_significant"])  # type: ignore
-                                        or (out["gates"]["att_near_zero"] and out["gates"]["no_significant_negative"])  # type: ignore
-                                    )
+                                    # 修复：ATT<0 时不通过，即使 att_near_zero=True 也需要排除负值
+                                    out["gates"]["synth_passed"] = positive_signal or (neutral_consistent and not negative_evidence)  # type: ignore
 
                                     out["status"] = "ok"  # type: ignore
-                                    out["reason"] = (
-                                        "synth_estimated_positive_signal"
-                                        if (att > 0 and p_val < 0.05)
-                                        else "synth_estimated_neutral_consistent"
-                                    )  # type: ignore
+                                    if positive_signal:
+                                        out["reason"] = "synth_estimated_positive_signal"  # type: ignore
+                                    elif negative_evidence:
+                                        out["reason"] = "synth_estimated_negative_att_not_supported"  # type: ignore
+                                    else:
+                                        out["reason"] = "synth_estimated_neutral_consistent"  # type: ignore
 
     with OUT_FILE.open("w", encoding="utf-8") as f:  # type: ignore
         json.dump(out, f, ensure_ascii=False, indent=2)  # type: ignore

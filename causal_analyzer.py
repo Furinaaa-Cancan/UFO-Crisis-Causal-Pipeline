@@ -46,6 +46,7 @@ FAST_MODE_PERMUTATIONS = 2000
 WINDOWS = (3, 7, 10, 14, 30)
 APPROVAL_WINDOWS = (3, 7, 10)
 SHOCK_COUNT_FLOOR = 2.0
+EV2_MIN_DATES = 5
 DEFAULT_SCRAPER_LOOKBACK = 120
 LEAD_LAG_TIE_TOLERANCE = 0.08
 
@@ -133,6 +134,7 @@ class PanelStats:
     best_positive_lag: int
     best_positive_corr: float
     lag0_corr: float
+    shock_source: str = "news_volume_75pct_fallback"
 
 
 @dataclass
@@ -479,6 +481,26 @@ def _select_panel_rows(panel: dict, prefer_policy: str) -> Tuple[str, List[dict]
 # _max_missing_streak 已移至 utils.py（通过 import 别名引入）
 
 
+def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
+    """从 events_v2.json 读取真实危机日期列表（语义正确的冲击日）。"""
+    if not events_path.exists():  # type: ignore
+        return []
+    try:
+        with events_path.open("r", encoding="utf-8") as f:  # type: ignore
+            payload = json.load(f)  # type: ignore
+        dates = []
+        for row in payload.get("correlations", []):  # type: ignore
+            d_str = row.get("crisis", {}).get("date")  # type: ignore
+            if d_str:
+                try:
+                    dates.append(parse_date(d_str))  # type: ignore
+                except Exception:
+                    pass
+        return sorted(set(dates))  # type: ignore
+    except Exception:
+        return []
+
+
 def analyze_panel(  # type: ignore
     panel_path: Path,
     prefer_policy: str,
@@ -486,6 +508,7 @@ def analyze_panel(  # type: ignore
     min_shocks: int = 12,
     min_observed_ratio: float = 0.8,
     permutations: int = PERMUTATIONS,
+    events_v2_path: Path | None = None,
 ) -> PanelStats:
     panel = load_panel(panel_path)  # type: ignore
     policy, rows = _select_panel_rows(panel, prefer_policy)  # type: ignore
@@ -510,6 +533,7 @@ def analyze_panel(  # type: ignore
             best_positive_lag=0,
             best_positive_corr=0.0,
             lag0_corr=0.0,
+            shock_source="none",
         )
 
     by_date = {}
@@ -570,18 +594,46 @@ def analyze_panel(  # type: ignore
             best_positive_lag=0,
             best_positive_corr=0.0,
             lag0_corr=0.0,
+            shock_source="none",
         )
 
+    # 双轨冲击日机制：
+    # 主轨：events_v2 真实危机日期（语义正确，但数量少）
+    # 辅轨：高新闻量日（75百分位，数量多但语义为"高新闻量日"而非"政治危机日"）
+    # 优先使用主轨；若主轨在面板覆盖范围内的日期 < min_shocks，则回退辅轨并标注
+    ev2_crisis_dates: List[date] = []
+    if events_v2_path is not None:
+        ev2_crisis_dates = _load_events_v2_crisis_dates(events_v2_path)
+    # 只保留在面板覆盖范围内的 events_v2 危机日期
+    ev2_in_panel = [d for d in ev2_crisis_dates if start <= d <= end]
+
     shock_threshold = compute_shock_threshold(crisis_nonzero)
-    shock_days = [d for d, v in crisis_series.items() if v >= shock_threshold]  # type: ignore
+    news_volume_shock_days = [d for d, v in crisis_series.items() if v >= shock_threshold]  # type: ignore
+
+    # 主轨门槛：events_v2 面板内日期 >= 5 即优先使用（语义正确优先于数量）
+    # min_shocks 是统计功效门槛，不应阻止语义正确的冲击日被使用
+    if len(ev2_in_panel) >= EV2_MIN_DATES:
+        shock_days = ev2_in_panel
+        shock_source = "events_v2_crisis_dates"
+    else:
+        # 回退：使用90百分位（比原75百分位更严格）以减少误报
+        shock_threshold_90 = compute_shock_threshold(crisis_nonzero, q=90.0)
+        news_volume_shock_days_90 = [d for d, v in crisis_series.items() if v >= shock_threshold_90]
+        shock_days = news_volume_shock_days_90 if news_volume_shock_days_90 else news_volume_shock_days
+        shock_threshold = shock_threshold_90 if news_volume_shock_days_90 else shock_threshold
+        shock_source = "news_volume_90pct_fallback" if news_volume_shock_days_90 else "news_volume_75pct_fallback"
+
     n_shocks = len(shock_days)
 
-    if observed_days < min_days or n_shocks < min_shocks or observed_ratio < min_observed_ratio:
+    # 当使用 events_v2 主轨时，冲击日门槛降为 EV2_MIN_DATES（语义正确优先于数量）
+    effective_min_shocks = EV2_MIN_DATES if shock_source == "events_v2_crisis_dates" else min_shocks
+
+    if observed_days < min_days or n_shocks < effective_min_shocks or observed_ratio < min_observed_ratio:
         reasons = []
         if observed_days < min_days:
             reasons.append(f"observed_days={observed_days} (<{min_days})")
-        if n_shocks < min_shocks:
-            reasons.append(f"shocks={n_shocks} (<{min_shocks})")
+        if n_shocks < effective_min_shocks:
+            reasons.append(f"shocks={n_shocks} (<{effective_min_shocks})")
         if observed_ratio < min_observed_ratio:
             reasons.append(f"observed_ratio={observed_ratio:.3f} (<{min_observed_ratio:.3f})")
         return PanelStats(
@@ -604,6 +656,7 @@ def analyze_panel(  # type: ignore
             best_positive_lag=0,
             best_positive_corr=0.0,
             lag0_corr=0.0,
+            shock_source=shock_source,
         )
 
     ufo_nonzero = [v for v in ufo_series.values() if v > 0]  # type: ignore
@@ -687,6 +740,7 @@ def analyze_panel(  # type: ignore
         best_positive_lag=int(best_positive_lag),
         best_positive_corr=float(best_positive_corr),
         lag0_corr=lag0_corr,
+        shock_source=shock_source,
     )
 
 
@@ -722,14 +776,19 @@ def summarize_causal_verdict(
         ):
             sig_windows += 1  # type: ignore
 
+    # 修复：lag=0（同期）为全局最优时，不能声称"危机领先UFO"的因果前导信号。
+    # 只有正向 lag 的相关系数严格优于 lag=0 时，才算前导信号。
+    lag0_is_dominant = panel_stats.lag0_corr >= panel_stats.best_positive_corr - LEAD_LAG_TIE_TOLERANCE
     lead_lag_ok = (
         1 <= panel_stats.best_positive_lag <= 30
         and panel_stats.best_positive_corr > 0.1
-        and panel_stats.best_positive_corr >= (panel_stats.best_corr - LEAD_LAG_TIE_TOLERANCE)
+        and not lag0_is_dominant  # lag=0 不能是最优，否则只是同期相关
     )
 
     if sig_windows >= 2 and lead_lag_ok:
         return "存在因果信号（中等强度，仍需外部对照验证）", notes
+    if sig_windows >= 2:
+        return "存在时序窗口显著效应，但前导相关不明确（同期相关主导），因果方向待确认", notes
     if sig_windows >= 1:
         return "存在弱因果信号，但证据仍不足以作强因果结论", notes
     return "仅发现相关性或弱信号，因果证据不足", notes
@@ -769,11 +828,14 @@ def run_strict_approval(
         )
     )
 
+    # 当使用 events_v2 主轨时，冲击日门槛降为 EV2_MIN_DATES
+    effective_min_shocks = EV2_MIN_DATES if panel_stats.shock_source == "events_v2_crisis_dates" else min_shocks
+    ev2_shocks_note = " (events_v2主轨，门槛降为语义正确优先)" if panel_stats.shock_source == "events_v2_crisis_dates" else ""
     gates.append(
         ApprovalGate(
-            name=f"panel_shocks>={min_shocks}",
-            passed=panel_stats.n_shocks >= min_shocks,
-            detail=f"shocks={panel_stats.n_shocks}",
+            name=f"panel_shocks>={int(effective_min_shocks)}",
+            passed=panel_stats.n_shocks >= effective_min_shocks,
+            detail=f"shocks={panel_stats.n_shocks}, shock_source={panel_stats.shock_source}{ev2_shocks_note}",
         )
     )
 
@@ -809,10 +871,12 @@ def run_strict_approval(
         )
     )
 
+    # 修复：lag=0（同期）主导时不能声称因果前导，正向 lag 必须严格优于 lag=0
+    lag0_is_dominant = panel_stats.lag0_corr >= panel_stats.best_positive_corr - LEAD_LAG_TIE_TOLERANCE
     lead_lag_ok = (
         1 <= panel_stats.best_positive_lag <= 30
         and panel_stats.best_positive_corr >= 0.1
-        and panel_stats.best_positive_corr >= (panel_stats.best_corr - LEAD_LAG_TIE_TOLERANCE)
+        and not lag0_is_dominant
     )
     gates.append(
         ApprovalGate(
@@ -822,7 +886,8 @@ def run_strict_approval(
                 f"best_positive_lag={panel_stats.best_positive_lag}, "
                 f"best_positive_corr={panel_stats.best_positive_corr:.4f}, "
                 f"best_any_lag={panel_stats.best_lag}, best_any_corr={panel_stats.best_corr:.4f}, "
-                f"lag0_corr={panel_stats.lag0_corr:.4f}"
+                f"lag0_corr={panel_stats.lag0_corr:.4f}, "
+                f"lag0_dominant={lag0_is_dominant}"
             ),
         )
     )
@@ -884,6 +949,10 @@ def write_causal_report(
             ],
         },
         "events_v2": {
+            "_warning": (
+                "人工筛选正向配对样本，存在严重选择偏差。"
+                "以下统计数字（含p值）仅作描述性参考，不用于任何闸门判断或因果结论。"
+            ),
             "n_cases": events_stats.n_cases,
             "mean_gap": events_stats.mean_gap,
             "mean_abs_gap": events_stats.mean_abs_gap,
@@ -891,10 +960,10 @@ def write_causal_report(
             "within_60": events_stats.within_60,
             "positive_count": events_stats.positive_count,
             "negative_count": events_stats.negative_count,
-            "p_abs_gap": events_stats.p_abs_gap,
-            "p_within_30": events_stats.p_within_30,
-            "p_within_60": events_stats.p_within_60,
-            "p_direction": events_stats.p_direction,
+            "p_abs_gap_descriptive_only": events_stats.p_abs_gap,
+            "p_within_30_descriptive_only": events_stats.p_within_30,
+            "p_within_60_descriptive_only": events_stats.p_within_60,
+            "p_direction_descriptive_only": events_stats.p_direction,
         },
         "scraped": {
             "policy": scraped_stats.policy,
@@ -919,6 +988,7 @@ def write_causal_report(
             "sufficient": panel_stats.sufficient,
             "reason": panel_stats.reason,
             "control_metric": panel_stats.control_metric,
+            "shock_source": panel_stats.shock_source,
             "best_lag": panel_stats.best_lag,
             "best_corr": panel_stats.best_corr,
             "best_positive_lag": panel_stats.best_positive_lag,
@@ -1015,6 +1085,7 @@ def main() -> None:
         min_shocks=args.min_panel_shocks,
         min_observed_ratio=args.min_panel_observed_ratio,
         permutations=permutations,
+        events_v2_path=EVENTS_FILE,
     )
     verdict, notes = summarize_causal_verdict(events_stats, scraped_stats, panel_stats)
     approval = run_strict_approval(

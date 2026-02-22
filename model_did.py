@@ -1,5 +1,9 @@
 """
-DID（准实验）分析脚本
+窗口均值差检验（Window Mean-Difference Test）
+
+注意：本脚本实现的是"冲击日前后窗口均值差 + 置换检验"，
+不是 Callaway-Sant'Anna 多期 DID（后者需要单位固定效应和平行趋势检验）。
+结论中应表述为"窗口均值差检验"，不应声称"DID 因果识别"。
 
 目标：
 - 基于冲击日与非冲击日做窗口 ATT 估计（7/14/30）
@@ -40,6 +44,7 @@ MIN_OBS_DAYS = 60
 MIN_SHOCK_DAYS = 8
 PLACEBO_BUFFER_DAYS = 7
 SHOCK_COUNT_FLOOR = 2.0
+MAX_SHOCKS_FOR_ESTIMATION = 180
 
 
 # parse_date, percentile, quantile, compute_shock_threshold 已移至 utils.py
@@ -47,6 +52,15 @@ SHOCK_COUNT_FLOOR = 2.0
 
 def read_panel_rows(policy: str = "strict-balanced") -> List[dict]:
     return _read_panel_rows(PANEL_FILE, policy)
+
+
+def downsample_dates_evenly(dates: List[date], max_n: int) -> List[date]:
+    if max_n <= 0 or len(dates) <= max_n:
+        return list(dates)
+    if max_n == 1:
+        return [dates[len(dates) // 2]]
+    last = len(dates) - 1
+    return [dates[(i * last) // (max_n - 1)] for i in range(max_n)]  # type: ignore
 
 
 def load_topic_series() -> Dict[str, Dict[date, float]]:
@@ -165,6 +179,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-observed-days", type=int, default=MIN_OBS_DAYS)
     p.add_argument("--min-shock-days", type=int, default=MIN_SHOCK_DAYS)
     p.add_argument("--placebo-buffer-days", type=int, default=PLACEBO_BUFFER_DAYS)
+    p.add_argument("--max-shocks-for-estimation", type=int, default=MAX_SHOCKS_FOR_ESTIMATION)
     return p.parse_args()
 
 
@@ -173,13 +188,15 @@ def main() -> None:
     rows = read_panel_rows(args.policy)
     out = {
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
-        "model": "did_quasi_experimental",
+        "model": "window_mean_diff_permutation_test",
         "policy": args.policy,
         "observed_days": len(rows),
         "status": "pending",
         "reason": "",
         "shock_threshold": None,
         "shock_days": 0,
+        "shock_days_used": 0,
+        "shock_sampling": "full",
         "windows": {},
         "negative_controls": {},
         "gates": {
@@ -213,9 +230,14 @@ def main() -> None:
         if len(shocks) < args.min_shock_days:
             out["reason"] = f"shock_days < {args.min_shock_days}，DID 估计不稳定"  # type: ignore
         else:
+            max_shocks = max(args.min_shock_days, int(args.max_shocks_for_estimation))
+            shocks_for_estimation = downsample_dates_evenly(shocks, max_shocks)
+            out["shock_days_used"] = len(shocks_for_estimation)  # type: ignore
+            out["shock_sampling"] = "downsample_evenly" if len(shocks_for_estimation) < len(shocks) else "full"  # type: ignore
+
             sig_pos = 0
             for w in WINDOWS:
-                wr = evaluate_window(ufo_series, shocks, placebo_pool, w)
+                wr = evaluate_window(ufo_series, shocks_for_estimation, placebo_pool, w)
                 out["windows"][str(w)] = wr  # type: ignore
                 if wr.get("status") == "ok" and wr.get("att", 0) > 0 and _p_below(wr.get("p_value"), 0.05):  # type: ignore
                     sig_pos += 1
@@ -228,7 +250,7 @@ def main() -> None:
                 neg_viol = 0
                 neg_est = 0
                 for topic, series in topic_series.items():  # type: ignore
-                    wr = evaluate_window(series, shocks, placebo_pool, 7)
+                    wr = evaluate_window(series, shocks_for_estimation, placebo_pool, 7)
                     out["negative_controls"][topic] = wr  # type: ignore
                     if wr.get("status") == "ok":  # type: ignore
                         neg_est += 1  # type: ignore
@@ -247,10 +269,10 @@ def main() -> None:
     with OUT_FILE.open("w", encoding="utf-8") as f:  # type: ignore
         json.dump(out, f, ensure_ascii=False, indent=2)  # type: ignore
 
-    print("=== DID Quasi-Experimental ===")
+    print("=== Window Mean-Difference Test ===")
     print(f"status: {out['status']}")  # type: ignore
     print(f"reason: {out['reason']}")  # type: ignore
-    print(f"shock_days: {out['shock_days']}")  # type: ignore
+    print(f"shock_days: {out['shock_days']} (used={out['shock_days_used']}, sampling={out['shock_sampling']})")  # type: ignore
     print(f"did_passed: {out['gates']['did_passed']}")  # type: ignore
     print(f"[输出] {OUT_FILE}")  # type: ignore
 
