@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-02-22T05:15:50.941398+00:00",
+  "summary": {
+    "official_items_considered": 2,
+    "media_items_considered": 4,
+    "dropped_low_score_items": 124,
+    "max_lag_days": 30,
+    "min_semantic_score": 2,
+    "min_base_score": 55,
+    "total_pairs": 0,
+    "strict_pairs": 0,
+    "balanced_pairs": 0,
+    "exploratory_pairs": 0,
+    "strict_nonnegative_lag_pairs": 0,
+    "strict_positive_lag_pairs": 0,
+    "strict_with_timestamp_pairs": 0,
+    "official_events_with_strict_followup": 0,
+    "top_blockers": [
+      {
+        "reason": "no_media_within_lag_window",
+        "count": 2
+      }
+    ]
+  },
+  "pairs": []
+}

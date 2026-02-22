@@ -60,6 +60,7 @@
     ├── strict_dual_review.json # strict 双档稳定性评审
     ├── strict_review_snapshot.json # 统一严格评审快照
     ├── official_lead_event_candidates.json # 官方先发/媒体跟进事件级诊断
+    ├── official_media_pairs.json # 官方-媒体机制配对（独立于主事件簇）
     ├── model_did_report.json # DID 准实验输出
     ├── model_event_study_report.json # 事件研究动态效应输出
     ├── model_synth_control_report.json # 合成控制简化输出
@@ -134,6 +135,7 @@ python scraper.py --max-workers 8
 > - 真实性过滤摘要（原始条目数、过滤后条目数、主要拒绝原因）
 > - 日期解析兜底（RSS 缺失日期时尝试从 URL 路径提取 `YYYY/MM/DD`）
 > - UFO 事件语义合并（按周+actor+action+topic 合并同事件跨源报道）
+> - 官方-媒体机制配对（从候选池构建官方先发→媒体跟进证据，输出 `official_media_pairs.json`）
 > - 关联时间窗口内的危机↔UFO关联对（默认60天）
 > - 与 `events_v2.json` 历史数据集的交叉验证结果
 > - 结果保存至 `data/scraped_news.json`（包含通过条目与拒绝条目）

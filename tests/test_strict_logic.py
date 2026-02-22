@@ -314,6 +314,42 @@ class TestStrictLogic(unittest.TestCase):
         self.assertGreaterEqual(len(e.get("corroborated_sources", [])), 2)
         self.assertTrue(str(e.get("ufo_event_signature", "")).startswith("2026-02-16|act:disclosure"))
 
+    def test_build_official_media_pairs_detects_strict_positive_lag(self):
+        items = [
+            {
+                "category": "ufo",
+                "source": "Pentagon / DoD 新闻稿",
+                "source_type": "rss",
+                "weight": 3,
+                "title": "Department of Defense Releases Annual UAP Report",
+                "description": "Official UAP annual assessment release",
+                "date": "2024-11-14",
+                "published_at": "2024-11-14T12:00:00+00:00",
+                "url": "https://www.defense.gov/a",
+                "domain": "defense.gov",
+                "authenticity": {"final_score": 88},
+            },
+            {
+                "category": "ufo",
+                "source": "BBC 美国&加拿大新闻",
+                "source_type": "rss",
+                "weight": 2,
+                "title": "Pentagon UAP annual report draws new scrutiny",
+                "description": "Media follow-up on the UAP report",
+                "date": "2024-11-15",
+                "published_at": "2024-11-15T06:00:00+00:00",
+                "url": "https://www.bbc.com/b",
+                "domain": "bbc.com",
+                "authenticity": {"final_score": 84},
+            },
+        ]
+        pairs = scraper.build_official_media_pairs(items, max_lag_days=10, min_semantic_score=2, min_base_score=55)
+        summary = pairs.get("summary", {})
+        self.assertGreaterEqual(summary.get("official_items_considered", 0), 1)
+        self.assertGreaterEqual(summary.get("media_items_considered", 0), 1)
+        self.assertGreaterEqual(summary.get("strict_pairs", 0), 1)
+        self.assertGreaterEqual(summary.get("strict_positive_lag_pairs", 0), 1)
+
     def test_base_authenticity_prefers_official_items_with_parseable_timestamp(self):
         today = datetime.now(timezone.utc).date().isoformat()
         items = [
@@ -636,6 +672,35 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(m["metrics"]["lag_observed_events"], 3)
         self.assertEqual(m["metrics"]["official_lead_by_lag_events"], 2)
         self.assertTrue(m["gates"]["official_lead_events>=2"])
+
+    def test_mechanism_summary_uses_pair_strict_lag_when_event_lag_missing(self):
+        scraped = {
+            "ufo_news": [
+                {"source": "BBC 美国&加拿大新闻", "corroborated_sources": []},
+            ]
+        }
+        pair_payload = {
+            "summary": {
+                "total_pairs": 2,
+                "strict_pairs": 2,
+                "balanced_pairs": 0,
+                "strict_nonnegative_lag_pairs": 2,
+                "strict_positive_lag_pairs": 1,
+                "strict_with_timestamp_pairs": 1,
+                "official_events_with_strict_followup": 1,
+            }
+        }
+        m = strict_reviewer.summarize_mechanism_signals(
+            scraped=scraped,
+            min_official_share=0.0,
+            min_official_lead_events=1,
+            min_ufo_events=1,
+            official_media_pairs=pair_payload,
+        )
+        self.assertEqual(m["lead_basis"], "pair_strict_lag")
+        self.assertEqual(m["metrics"]["official_lead_events"], 1)
+        self.assertEqual(m["metrics"]["pair_strict"], 2)
+        self.assertTrue(m["gates"]["official_lead_events>=1"])
 
     def test_historical_mechanism_summary_uses_us_cases_only(self):
         events_v2 = {

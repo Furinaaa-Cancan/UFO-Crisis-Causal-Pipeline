@@ -32,6 +32,7 @@ MODEL_SYNTH_FILE = DATA_DIR / "model_synth_control_report.json"
 MODEL_CAUSAL_ML_FILE = DATA_DIR / "model_causal_ml_report.json"
 EVENTS_V2_FILE = DATA_DIR / "events_v2.json"
 OFFICIAL_LEAD_DIAG_FILE = DATA_DIR / "official_lead_event_candidates.json"
+OFFICIAL_MEDIA_PAIRS_FILE = DATA_DIR / "official_media_pairs.json"
 OUT_FILE = DATA_DIR / "strict_review_snapshot.json"
 
 OFFICIAL_SOURCE_HINTS = (
@@ -91,6 +92,7 @@ def summarize_mechanism_signals(
     min_official_lead_events: int,
     min_ufo_events: int = 3,
     historical_mechanism: Dict[str, Any] | None = None,
+    official_media_pairs: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     ufo_events = scraped.get("ufo_news", [])  # type: ignore
     total = len(ufo_events)
@@ -142,12 +144,28 @@ def summarize_mechanism_signals(
     effective_official = official_involved + hist_official
     effective_share = (effective_official / float(effective_total)) if effective_total > 0 else 0.0
     enough_ufo_events = effective_total >= min_ufo_events
-    # Prefer lag-based lead evidence when available; fallback to source-order proxy.
-    official_lead_events = (
-        official_lead_by_lag_events
-        if lag_observed_events > 0
-        else official_primary_with_media_followup
-    )
+
+    pair_summary = (official_media_pairs or {}).get("summary", {}) if isinstance(official_media_pairs, dict) else {}
+    pair_total = int(pair_summary.get("total_pairs", 0) or 0)
+    pair_strict = int(pair_summary.get("strict_pairs", 0) or 0)
+    pair_balanced = int(pair_summary.get("balanced_pairs", 0) or 0)
+    pair_nonnegative = int(pair_summary.get("strict_nonnegative_lag_pairs", 0) or 0)
+    pair_positive = int(pair_summary.get("strict_positive_lag_pairs", 0) or 0)
+    pair_lag_observed = int(pair_summary.get("strict_with_timestamp_pairs", 0) or 0)
+    pair_official_with_followup = int(pair_summary.get("official_events_with_strict_followup", 0) or 0)
+    pair_lead_events = pair_positive if pair_positive > 0 else pair_nonnegative
+
+    # Prefer timestamp/day lag evidence first, then pair-based strict lag evidence,
+    # and fallback to source-order proxy only when no lag evidence exists.
+    if lag_observed_events > 0:
+        official_lead_events = official_lead_by_lag_events
+        lead_basis = "lag"
+    elif pair_lead_events > 0:
+        official_lead_events = pair_lead_events
+        lead_basis = "pair_strict_lag"
+    else:
+        official_lead_events = official_primary_with_media_followup
+        lead_basis = "source_order_proxy"
     lag_mean = (sum(lag_values) / float(len(lag_values))) if lag_values else None
 
     gates = {
@@ -172,6 +190,13 @@ def summarize_mechanism_signals(
             "official_to_media_lag_days_q50": (round(percentile(lag_values, 50), 6) if lag_values else None),
             "official_source_share": round(official_share, 6),  # type: ignore
             "official_primary_share": round(official_primary_share, 6),  # type: ignore
+            "pair_total": pair_total,
+            "pair_strict": pair_strict,
+            "pair_balanced": pair_balanced,
+            "pair_strict_nonnegative_lag_events": pair_nonnegative,
+            "pair_strict_positive_lag_events": pair_positive,
+            "pair_lag_observed_events": pair_lag_observed,
+            "pair_official_events_with_strict_followup": pair_official_with_followup,
             "historical_ufo_events_total": hist_total,
             "historical_government_action_events": hist_official,
             "effective_ufo_events_total": effective_total,
@@ -179,7 +204,7 @@ def summarize_mechanism_signals(
             "effective_official_share": round(effective_share, 6),  # type: ignore
         },
         "gates": gates,
-        "lead_basis": "lag" if lag_observed_events > 0 else "source_order_proxy",
+        "lead_basis": lead_basis,
         "mechanism_passed": mechanism_passed,
     }
 
@@ -375,6 +400,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     causal_ml = read_json(MODEL_CAUSAL_ML_FILE)
     events_v2 = read_json(EVENTS_V2_FILE)
     official_lead_diag = read_json(OFFICIAL_LEAD_DIAG_FILE)
+    official_media_pairs = read_json(OFFICIAL_MEDIA_PAIRS_FILE)
     prev_snapshot = read_json(OUT_FILE)
 
     approval = causal.get("approval", {})  # type: ignore
@@ -467,6 +493,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
         min_official_lead_events=args.min_official_lead_events,
         min_ufo_events=args.min_mechanism_ufo_events,
         historical_mechanism=historical_mechanism,
+        official_media_pairs=official_media_pairs,
     )
 
     summary: Dict[str, Any] = {  # type: ignore
@@ -516,6 +543,10 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
             "official_lead_diagnostics": {
                 "available": bool(official_lead_diag),
                 "summary": official_lead_diag.get("summary", {}) if isinstance(official_lead_diag, dict) else {},
+            },
+            "official_media_pairs": {
+                "available": bool(official_media_pairs),
+                "summary": official_media_pairs.get("summary", {}) if isinstance(official_media_pairs, dict) else {},
             },
         },
         "gates": {
@@ -588,6 +619,8 @@ def main() -> None:
         f"official_share_effective={report['mechanism']['metrics']['effective_official_share']}, "
         f"official_lead_events={report['mechanism']['metrics']['official_lead_events']}, "
         f"lag_observed={report['mechanism']['metrics']['lag_observed_events']}, "
+        f"pair_strict={report['mechanism']['metrics']['pair_strict']}, "
+        f"pair_strict_positive={report['mechanism']['metrics']['pair_strict_positive_lag_events']}, "
         f"lag_q50={report['mechanism']['metrics']['official_to_media_lag_days_q50']}, "
         f"passed={report['mechanism']['mechanism_passed']}"
     )  # type: ignore
@@ -603,6 +636,16 @@ def main() -> None:
             f"strict_candidates={lead_diag_summary.get('official_lead_strict_candidates')}, "
             f"with_lag_days={lead_diag_summary.get('with_lag_days')}, "
             f"total_ufo={lead_diag_summary.get('total_ufo_events')}"
+        )
+    pair_summary = report.get("quality", {}).get("official_media_pairs", {}).get("summary", {})  # type: ignore
+    if pair_summary:
+        print(
+            "official_media_pairs: "
+            f"total={pair_summary.get('total_pairs')}, "
+            f"strict={pair_summary.get('strict_pairs')}, "
+            f"strict_positive={pair_summary.get('strict_positive_lag_pairs')}, "
+            f"official_items={pair_summary.get('official_items_considered')}, "
+            f"media_items={pair_summary.get('media_items_considered')}"
         )
     print(f"[输出] {OUT_FILE}")  # type: ignore
 

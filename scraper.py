@@ -33,6 +33,7 @@ SCRAPED_FILE = os.path.join(OUTPUT_DIR, "scraped_news.json")
 SOURCES_FILE = os.path.join(OUTPUT_DIR, "sources.json")
 EVENTS_V2_FILE = os.path.join(OUTPUT_DIR, "events_v2.json")
 OFFICIAL_LEAD_DIAG_FILE = os.path.join(OUTPUT_DIR, "official_lead_event_candidates.json")
+OFFICIAL_MEDIA_PAIRS_FILE = os.path.join(OUTPUT_DIR, "official_media_pairs.json")
 
 REQUEST_TIMEOUT = 20
 REQUEST_RETRIES = 3
@@ -1869,6 +1870,248 @@ def build_official_lead_diagnostics(ufo_news):
     }
 
 
+def build_ufo_semantic_profile(item):
+    title = normalize_text(item.get("title", ""))  # type: ignore
+    desc = strip_html(item.get("description", ""))  # type: ignore
+    text = f"{title} {desc}".lower()
+    tokens = set(extract_claim_tokens(title))
+    if len(tokens) < 3:
+        tokens.update(extract_claim_tokens(text))
+    action = infer_ufo_action_tag(text)
+    topic = infer_ufo_topic_tag(text)
+    actor = _pick_priority_anchor(text, UFO_ACTOR_KEYWORDS, default="na")
+    return {
+        "title": title,
+        "text": text,
+        "tokens": tokens,
+        "action": action,
+        "topic": topic,
+        "actor": actor,
+    }
+
+
+def compute_ufo_semantic_match_score(official_profile, media_profile):
+    score = 0
+    reasons = []
+    off_action = official_profile.get("action", "na")
+    med_action = media_profile.get("action", "na")
+    off_topic = official_profile.get("topic", "na")
+    med_topic = media_profile.get("topic", "na")
+    off_actor = official_profile.get("actor", "na")
+    med_actor = media_profile.get("actor", "na")
+
+    if off_action != "na" and off_action == med_action:
+        score += 2
+        reasons.append("same_action")
+    if off_topic != "na" and off_topic == med_topic:
+        score += 2
+        reasons.append("same_topic")
+    if off_actor != "na" and off_actor == med_actor:
+        score += 1
+        reasons.append("same_actor")
+
+    overlap = len((official_profile.get("tokens", set()) or set()) & (media_profile.get("tokens", set()) or set()))  # type: ignore
+    if overlap >= 3:
+        score += 2
+        reasons.append("token_overlap>=3")
+    elif overlap >= 2:
+        score += 1
+        reasons.append("token_overlap>=2")
+    return score, overlap, reasons
+
+
+def classify_official_media_pair_tier(media_row, semantic_score):
+    source_type = media_row.get("source_type", "")  # type: ignore
+    weight = int(media_row.get("weight", 1) or 1)  # type: ignore
+    is_aggregator = bool(media_row.get("is_aggregator", False))  # type: ignore
+    if source_type == "rss" and weight >= 2 and not is_aggregator and semantic_score >= 3:
+        return "strict"
+    if source_type == "rss" and not is_aggregator and semantic_score >= 2:
+        return "balanced"
+    return "exploratory"
+
+
+def build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min_base_score=55):
+    official_rows = []
+    media_rows = []
+    dropped_low_score = 0
+
+    for item in items:
+        if item.get("category") != "ufo":  # type: ignore
+            continue
+        d = parse_iso_date(item.get("date"))  # type: ignore
+        if d is None:
+            continue
+        auth = item.get("authenticity", {})  # type: ignore
+        base_score = float(auth.get("final_score", auth.get("base_score", 0)) or 0.0)  # type: ignore
+        if base_score < min_base_score:
+            dropped_low_score += 1
+            continue
+
+        source = str(item.get("source", "") or "")
+        is_official = source_is_official(source)
+        is_aggregator = source_is_aggregator(source) or bool(auth.get("is_aggregator", False))  # type: ignore
+        profile = build_ufo_semantic_profile(item)
+        row = {
+            "source": source,
+            "source_type": str(item.get("source_type", "") or ""),
+            "weight": int(item.get("weight", 1) or 1),
+            "is_aggregator": is_aggregator,
+            "date": d,
+            "date_iso": d.isoformat(),  # type: ignore
+            "published_at": str(item.get("published_at", "") or ""),
+            "published_dt": parse_iso_datetime(item.get("published_at")),  # type: ignore
+            "title": profile.get("title", ""),
+            "url": str(item.get("url", "") or ""),
+            "domain": str(item.get("domain", "") or ""),
+            "score": round(base_score, 3),  # type: ignore
+            "profile": profile,
+            "event_key": (
+                f"{d.isoformat()}|act:{profile.get('action','na')}|"  # type: ignore
+                f"topic:{profile.get('topic','na')}|actor:{profile.get('actor','na')}"
+            ),
+        }
+        if is_official:
+            official_rows.append(row)
+        else:
+            media_rows.append(row)
+
+    pair_candidates = []
+    blocker_counter = Counter()
+    if not official_rows:
+        blocker_counter["no_official_ufo_candidates"] += 1  # type: ignore
+    if not media_rows:
+        blocker_counter["no_media_ufo_candidates"] += 1  # type: ignore
+
+    for off in official_rows:
+        found_in_window = False
+        found_semantic = False
+        for med in media_rows:
+            lag_days = (med["date"] - off["date"]).days  # type: ignore
+            if lag_days < 0 or lag_days > max_lag_days:
+                continue
+            found_in_window = True
+            semantic_score, token_overlap, match_reasons = compute_ufo_semantic_match_score(off["profile"], med["profile"])  # type: ignore
+            if semantic_score < min_semantic_score:
+                continue
+            found_semantic = True
+            lag_hours = None
+            if off.get("published_dt") is not None and med.get("published_dt") is not None:
+                lag_hours = round((med["published_dt"] - off["published_dt"]).total_seconds() / 3600.0, 3)  # type: ignore
+            lead_nonnegative = bool(lag_days >= 0 and (lag_hours is None or lag_hours >= 0))
+            lead_strict = bool((lag_days > 0) or (lag_days == 0 and isinstance(lag_hours, (int, float)) and lag_hours > 0))
+            pair_candidates.append({
+                "official_event_key": off.get("event_key"),
+                "official_source": off.get("source"),
+                "official_title": off.get("title"),
+                "official_date": off.get("date_iso"),
+                "official_published_at": off.get("published_at"),
+                "official_url": off.get("url"),
+                "official_domain": off.get("domain"),
+                "official_score": off.get("score"),
+                "official_action_tag": off.get("profile", {}).get("action"),  # type: ignore
+                "official_topic_tag": off.get("profile", {}).get("topic"),  # type: ignore
+                "official_actor_tag": off.get("profile", {}).get("actor"),  # type: ignore
+                "media_source": med.get("source"),
+                "media_title": med.get("title"),
+                "media_date": med.get("date_iso"),
+                "media_published_at": med.get("published_at"),
+                "media_url": med.get("url"),
+                "media_domain": med.get("domain"),
+                "media_score": med.get("score"),
+                "media_weight": med.get("weight"),
+                "media_source_type": med.get("source_type"),
+                "media_is_aggregator": bool(med.get("is_aggregator", False)),
+                "lag_days": int(lag_days),
+                "lag_hours": lag_hours,
+                "lead_nonnegative": lead_nonnegative,
+                "lead_strict_positive": lead_strict,
+                "semantic_score": int(semantic_score),
+                "token_overlap": int(token_overlap),
+                "semantic_match_reasons": match_reasons,
+                "evidence_tier": classify_official_media_pair_tier(med, semantic_score),
+            })
+        if not found_in_window:
+            blocker_counter["no_media_within_lag_window"] += 1  # type: ignore
+        elif not found_semantic:
+            blocker_counter["no_semantic_match_within_lag_window"] += 1  # type: ignore
+
+    pair_candidates.sort(
+        key=lambda x: (
+            0 if x.get("evidence_tier") == "strict" else (1 if x.get("evidence_tier") == "balanced" else 2),  # type: ignore
+            0 if x.get("lead_strict_positive") else 1,  # type: ignore
+            -int(x.get("semantic_score", 0) or 0),  # type: ignore
+            int(x.get("lag_days", 9999) or 9999),  # type: ignore
+            x.get("media_date", "") or "",  # type: ignore
+        )
+    )
+
+    best_by_media = {}
+    for row in pair_candidates:
+        media_key = row.get("media_url") or f"{row.get('media_source')}|{row.get('media_title')}"
+        prev = best_by_media.get(media_key)
+        if prev is None:
+            best_by_media[media_key] = row
+            continue
+        prev_key = (
+            0 if prev.get("evidence_tier") == "strict" else (1 if prev.get("evidence_tier") == "balanced" else 2),
+            0 if prev.get("lead_strict_positive") else 1,
+            -int(prev.get("semantic_score", 0) or 0),
+            int(prev.get("lag_days", 9999) or 9999),
+        )
+        curr_key = (
+            0 if row.get("evidence_tier") == "strict" else (1 if row.get("evidence_tier") == "balanced" else 2),
+            0 if row.get("lead_strict_positive") else 1,
+            -int(row.get("semantic_score", 0) or 0),
+            int(row.get("lag_days", 9999) or 9999),
+        )
+        if curr_key < prev_key:
+            best_by_media[media_key] = row
+
+    pairs = list(best_by_media.values())
+    pairs.sort(
+        key=lambda x: (
+            0 if x.get("evidence_tier") == "strict" else (1 if x.get("evidence_tier") == "balanced" else 2),  # type: ignore
+            0 if x.get("lead_strict_positive") else 1,  # type: ignore
+            int(x.get("lag_days", 9999) or 9999),  # type: ignore
+            x.get("media_date", "") or "",  # type: ignore
+        )
+    )
+
+    strict_pairs = [p for p in pairs if p.get("evidence_tier") == "strict"]  # type: ignore
+    balanced_pairs = [p for p in pairs if p.get("evidence_tier") == "balanced"]  # type: ignore
+    exploratory_pairs = [p for p in pairs if p.get("evidence_tier") == "exploratory"]  # type: ignore
+    strict_nonnegative = [p for p in strict_pairs if bool(p.get("lead_nonnegative"))]  # type: ignore
+    strict_positive = [p for p in strict_pairs if bool(p.get("lead_strict_positive"))]  # type: ignore
+    strict_ts = [p for p in strict_pairs if isinstance(p.get("lag_hours"), (int, float))]
+    official_with_strict_followup = sorted({p.get("official_event_key") for p in strict_pairs if p.get("official_event_key")})  # type: ignore
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
+        "summary": {
+            "official_items_considered": len(official_rows),
+            "media_items_considered": len(media_rows),
+            "dropped_low_score_items": dropped_low_score,
+            "max_lag_days": int(max_lag_days),
+            "min_semantic_score": int(min_semantic_score),
+            "min_base_score": int(min_base_score),
+            "total_pairs": len(pairs),
+            "strict_pairs": len(strict_pairs),
+            "balanced_pairs": len(balanced_pairs),
+            "exploratory_pairs": len(exploratory_pairs),
+            "strict_nonnegative_lag_pairs": len(strict_nonnegative),
+            "strict_positive_lag_pairs": len(strict_positive),
+            "strict_with_timestamp_pairs": len(strict_ts),
+            "official_events_with_strict_followup": len(official_with_strict_followup),
+            "top_blockers": [
+                {"reason": reason, "count": count}
+                for reason, count in blocker_counter.most_common(10)
+            ],
+        },
+        "pairs": pairs[:300],
+    }
+
+
 def print_source_summary(sources, counts, errors):
     t = Table(title="来源抓取摘要", box=box.SIMPLE, show_lines=False)  # type: ignore
     t.add_column("来源名称", width=32)
@@ -2139,6 +2382,7 @@ def scrape_all(
     rejected_items = dedupe_rejected + base_rejected + policy_rejected
     ufo_news, crisis_news = split_and_sort_news(accepted_events)
     official_lead_diag = build_official_lead_diagnostics(ufo_news)
+    official_media_pairs = build_official_media_pairs(candidates)
     source_stats = [source_records.get(src["name"]) for src in sources if source_records.get(src["name"])]  # type: ignore
     source_health = build_source_health_report(source_meta, all_sources, sources, source_stats)
     coverage_audit = build_coverage_audit(
@@ -2199,6 +2443,10 @@ def scrape_all(
             "summary": official_lead_diag.get("summary", {}),  # type: ignore
             "file": OFFICIAL_LEAD_DIAG_FILE,
         },
+        "official_media_pairs": {
+            "summary": official_media_pairs.get("summary", {}),  # type: ignore
+            "file": OFFICIAL_MEDIA_PAIRS_FILE,
+        },
         "ufo_news": ufo_news,
         "crisis_news": crisis_news,
         "rejected_news": rejected_items,
@@ -2209,6 +2457,8 @@ def scrape_all(
         json.dump(output, f, ensure_ascii=False, indent=2)  # type: ignore
     with open(OFFICIAL_LEAD_DIAG_FILE, "w", encoding="utf-8") as f:
         json.dump(official_lead_diag, f, ensure_ascii=False, indent=2)  # type: ignore
+    with open(OFFICIAL_MEDIA_PAIRS_FILE, "w", encoding="utf-8") as f:
+        json.dump(official_media_pairs, f, ensure_ascii=False, indent=2)  # type: ignore
 
     console.print(  # type: ignore
         f"\n[green]✓ 抓取完成：UFO [bold]{len(ufo_news)}[/bold] 条，"  # type: ignore
@@ -2216,6 +2466,7 @@ def scrape_all(
     )
     console.print(f"[green]✓ 数据已保存至 {SCRAPED_FILE}[/green]")  # type: ignore
     console.print(f"[green]✓ 机制诊断已保存至 {OFFICIAL_LEAD_DIAG_FILE}[/green]")  # type: ignore
+    console.print(f"[green]✓ 官方-媒体配对诊断已保存至 {OFFICIAL_MEDIA_PAIRS_FILE}[/green]")  # type: ignore
     return output
 
 
