@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-02-22T05:37:15.522705+00:00",
+  "generated_at": "2026-02-22T05:51:24.509500+00:00",
   "summary": {
-    "total_ufo_events": 6,
-    "with_official_source": 3,
+    "total_ufo_events": 4,
+    "with_official_source": 1,
     "with_media_source": 3,
     "with_lag_days": 0,
     "with_lag_hours": 0,
@@ -15,7 +15,7 @@
       },
       {
         "reason": "no_media_source_in_timeline",
-        "count": 3
+        "count": 1
       }
     ]
   },
@@ -82,48 +82,6 @@
       "lead_nonnegative_day": false,
       "lead_strict_candidate": false,
       "diagnostic_reason": "no_official_source_in_timeline"
-    },
-    {
-      "claim_fingerprint": "57bcb1870b3ce4c3",
-      "date": "2026-01-29",
-      "title": "Border Czar Affirms Commitment to Public Safety, Removing Violent Criminals in Minnesota",
-      "cluster_size": 1,
-      "primary_source": "White House 新闻稿",
-      "first_official_date": "2026-01-29",
-      "first_media_date": null,
-      "first_official_published_at": "2026-01-29T16:40:17+00:00",
-      "first_media_published_at": null,
-      "official_to_media_lag_days": null,
-      "official_to_media_lag_hours": null,
-      "official_media_lag_basis": "none",
-      "official_timeline_observations": 1,
-      "media_timeline_observations": 0,
-      "official_timeline_timestamp_observations": 1,
-      "media_timeline_timestamp_observations": 0,
-      "lead_nonnegative_day": false,
-      "lead_strict_candidate": false,
-      "diagnostic_reason": "no_media_source_in_timeline"
-    },
-    {
-      "claim_fingerprint": "5e0f5f3f384c51bc",
-      "date": "2026-02-03",
-      "title": "Minnesota Democrats Protected This Violent Illegal Alien. The Trump Administration Is Deporting Him.",
-      "cluster_size": 1,
-      "primary_source": "White House 新闻稿",
-      "first_official_date": "2026-02-03",
-      "first_media_date": null,
-      "first_official_published_at": "2026-02-03T20:12:20+00:00",
-      "first_media_published_at": null,
-      "official_to_media_lag_days": null,
-      "official_to_media_lag_hours": null,
-      "official_media_lag_basis": "none",
-      "official_timeline_observations": 1,
-      "media_timeline_observations": 0,
-      "official_timeline_timestamp_observations": 1,
-      "media_timeline_timestamp_observations": 0,
-      "lead_nonnegative_day": false,
-      "lead_strict_candidate": false,
-      "diagnostic_reason": "no_media_source_in_timeline"
     },
     {
       "claim_fingerprint": "08a7da0533c1f483",

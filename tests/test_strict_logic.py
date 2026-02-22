@@ -360,6 +360,13 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(len(rejected), 1)
         self.assertIn("no_relevance_keywords", rejected[0]["reason"])
 
+    def test_infer_ufo_topic_tag_ignores_immigration_alien_context(self):
+        text = "The administration said it will deport a violent illegal alien at the border."
+        self.assertEqual(scraper.infer_ufo_topic_tag(text), "na")
+
+        nhi_text = "Trump said UFO files and alien life disclosures will be released."
+        self.assertEqual(scraper.infer_ufo_topic_tag(nhi_text), "ufo_uap")
+
     def test_ufo_signature_merge_combines_same_event_across_sources(self):
         items = [
             {
@@ -473,6 +480,39 @@ class TestStrictLogic(unittest.TestCase):
         self.assertGreaterEqual(summary.get("pairs_with_resolved_publisher", 0), 1)
         self.assertEqual(pairs["pairs"][0]["evidence_tier"], "proxy_strict")
         self.assertTrue(pairs["pairs"][0]["media_is_aggregator_proxy"])
+
+    def test_build_official_media_pairs_ignores_immigration_alien_false_positive(self):
+        items = [
+            {
+                "category": "crisis",
+                "source": "White House 新闻稿",
+                "source_type": "rss",
+                "weight": 3,
+                "title": "Minnesota Democrats Protected This Violent Illegal Alien",
+                "description": "The administration is deporting this criminal illegal alien.",
+                "date": "2026-02-03",
+                "published_at": "2026-02-03T20:12:20+00:00",
+                "url": "https://whitehouse.gov/articles/a",
+                "domain": "whitehouse.gov",
+                "authenticity": {"final_score": 90},
+            },
+            {
+                "category": "ufo",
+                "source": "CBS News 政治（补充）",
+                "source_type": "rss",
+                "weight": 2,
+                "title": "Trump tells Pentagon to release UFO files",
+                "description": "UFO disclosure in the United States.",
+                "date": "2026-02-21",
+                "published_at": "2026-02-21T00:38:39+00:00",
+                "url": "https://cbsnews.com/news/ufo-files",
+                "domain": "cbsnews.com",
+                "authenticity": {"final_score": 83},
+            },
+        ]
+        pairs = scraper.build_official_media_pairs(items, max_lag_days=30, min_semantic_score=2, min_base_score=55)
+        self.assertEqual(pairs.get("summary", {}).get("official_items_considered"), 0)
+        self.assertEqual(pairs.get("summary", {}).get("total_pairs"), 0)
 
     def test_base_authenticity_prefers_official_items_with_parseable_timestamp(self):
         today = datetime.now(timezone.utc).date().isoformat()

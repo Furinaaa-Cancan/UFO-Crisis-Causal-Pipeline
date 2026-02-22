@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "新闻来源配置文件 — 多类型、多机构综合覆盖",
-    "last_updated": "2026-02-22-rev7-official-paged-window",
+    "last_updated": "2026-02-22-rev8-official-plus-direct-nbc",
     "feed_types": [
       "rss",
       "reddit_json"
@@ -303,6 +303,33 @@
       "category": "crisis",
       "weight": 2,
       "note": "CBS政治频道 — 补充法律/国会相关新闻",
+      "active": true
+    },
+    {
+      "name": "NBC News Politics（补充）",
+      "url": "https://feeds.nbcnews.com/nbcnews/public/politics",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "NBC 政治频道（直连非聚合源）",
+      "active": true
+    },
+    {
+      "name": "NBC News US（补充）",
+      "url": "https://feeds.nbcnews.com/nbcnews/public/us-news",
+      "type": "rss",
+      "category": "crisis",
+      "weight": 2,
+      "note": "NBC 美国新闻频道（直连非聚合源）",
+      "active": true
+    },
+    {
+      "name": "NBC News Science（补充）",
+      "url": "https://feeds.nbcnews.com/nbcnews/public/science",
+      "type": "rss",
+      "category": "ufo",
+      "weight": 2,
+      "note": "NBC 科学频道（补充 UAP/航天相关媒体线索）",
       "active": true
     },
     {

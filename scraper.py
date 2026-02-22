@@ -157,6 +157,21 @@ UFO_ACTOR_KEYWORDS = [
     "navy",
     "air force",
 ]
+UFO_ACTOR_CANONICAL_MAP = {
+    "trump": "us_executive",
+    "biden": "us_executive",
+    "white house": "us_executive",
+    "pentagon": "dod",
+    "dod": "dod",
+    "department of defense": "dod",
+    "congress": "us_congress",
+    "senate": "us_congress",
+    "house": "us_congress",
+    "navy": "us_military",
+    "air force": "us_military",
+    "nasa": "nasa",
+    "aaro": "aaro",
+}
 UFO_DISCLOSURE_ACTION_KEYWORDS = [
     "declassify",
     "declassified",
@@ -183,6 +198,21 @@ UFO_SIGHTING_ACTION_KEYWORDS = [
     "encounter",
     "incursion",
     "anomalous object",
+]
+IMMIGRATION_ALIEN_CONTEXT_KEYWORDS = [
+    "illegal alien",
+    "criminal alien",
+    "deport",
+    "deportation",
+    "deporting",
+    "immigration",
+    "migrant",
+    "border",
+    "asylum",
+    "ice",
+    "customs and border protection",
+    "cbp",
+    "homeland security",
 ]
 
 CRISIS_KEYWORDS = [
@@ -599,6 +629,31 @@ def keyword_hits(text, keywords):
         return k in text
 
     return [kw for kw in keywords if contains_kw(kw)]
+
+
+def is_immigration_alien_context(text):
+    low = (text or "").lower()
+    if not keyword_hits(low, ["alien", "aliens"]):
+        return False
+
+    # Explicit UFO/NHI anchors override immigration disambiguation.
+    if keyword_hits(low, ["ufo", "uap", "extraterrestrial", "non-human intelligence", "unidentified anomalous"]):
+        return False
+    return bool(keyword_hits(low, IMMIGRATION_ALIEN_CONTEXT_KEYWORDS))
+
+
+def filter_ufo_hits_for_context(hits, text):
+    if not hits:
+        return []
+    if not is_immigration_alien_context(text):
+        return list(hits)
+
+    filtered = []
+    for h in hits:
+        if h in ("alien", "aliens"):
+            continue
+        filtered.append(h)
+    return filtered
 
 
 def source_is_aggregator(source_name):
@@ -1149,7 +1204,7 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         if not title:
             hard_reasons.append("empty_title")
 
-        ufo_core_hits = keyword_hits(text, UFO_CORE_KEYWORDS)
+        ufo_core_hits = filter_ufo_hits_for_context(keyword_hits(text, UFO_CORE_KEYWORDS), text)
         ufo_ambiguous_hits = keyword_hits(text, UFO_AMBIGUOUS_KEYWORDS)
         ufo_hits = ufo_core_hits + [kw for kw in ufo_ambiguous_hits if kw not in ufo_core_hits]
         # Ambiguous UFO terms are counted as signal only when at least one core UFO term exists.
@@ -1159,7 +1214,7 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         crisis_hits = keyword_hits(text, CRISIS_KEYWORDS)
         hard_crisis_hits = keyword_hits(text, CRISIS_HARD_SIGNAL_KEYWORDS)
         official_action_hits = keyword_hits(text, OFFICIAL_ACTION_KEYWORDS)
-        title_ufo_core_hits = keyword_hits(title.lower(), UFO_CORE_KEYWORDS)
+        title_ufo_core_hits = filter_ufo_hits_for_context(keyword_hits(title.lower(), UFO_CORE_KEYWORDS), title.lower())
         title_ufo_ambiguous_hits = keyword_hits(title.lower(), UFO_AMBIGUOUS_KEYWORDS)
         title_ufo_hits = title_ufo_core_hits + [kw for kw in title_ufo_ambiguous_hits if kw not in title_ufo_core_hits]
         title_ufo_signal_hits = list(title_ufo_core_hits)
@@ -1169,6 +1224,8 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         title_hard_crisis_hits = keyword_hits(title.lower(), CRISIS_HARD_SIGNAL_KEYWORDS)
         title_official_action_hits = keyword_hits(title.lower(), OFFICIAL_ACTION_KEYWORDS)
         title_actor_hits = keyword_hits(title.lower(), TITLE_NATIONAL_POLITICAL_KEYWORDS)
+        if is_immigration_alien_context(text):
+            flags.append("alien_term_immigration_context")
         if not ufo_signal_hits and not crisis_hits and not hard_crisis_hits and not official_action_hits:
             hard_reasons.append("no_relevance_keywords")
 
@@ -1737,8 +1794,12 @@ def infer_ufo_topic_tag(text):
         ],
     ):
         return "ufo_uap"
-    if keyword_hits(text, ["alien", "extraterrestrial", "non-human intelligence", "non-human"]):
-        return "alien_nhi"
+    alien_hits = keyword_hits(text, ["alien", "aliens", "extraterrestrial", "non-human intelligence", "non-human"])
+    if alien_hits:
+        if keyword_hits(text, ["extraterrestrial", "non-human intelligence", "non-human", "ufo", "uap", "unidentified anomalous"]):
+            return "alien_nhi"
+        if not is_immigration_alien_context(text):
+            return "alien_nhi"
     if keyword_hits(text, ["crash retrieval", "recovered materials", "non-human craft"]):
         return "retrieval_claim"
     if keyword_hits(text, ["aaro"]):
@@ -2029,8 +2090,10 @@ def compute_ufo_semantic_match_score(official_profile, media_profile):
     med_action = media_profile.get("action", "na")
     off_topic = official_profile.get("topic", "na")
     med_topic = media_profile.get("topic", "na")
-    off_actor = official_profile.get("actor", "na")
-    med_actor = media_profile.get("actor", "na")
+    off_actor_raw = official_profile.get("actor", "na")
+    med_actor_raw = media_profile.get("actor", "na")
+    off_actor = UFO_ACTOR_CANONICAL_MAP.get(str(off_actor_raw or "na").lower(), str(off_actor_raw or "na").lower())
+    med_actor = UFO_ACTOR_CANONICAL_MAP.get(str(med_actor_raw or "na").lower(), str(med_actor_raw or "na").lower())
 
     if off_action != "na" and off_action == med_action:
         score += 2

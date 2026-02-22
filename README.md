@@ -93,6 +93,7 @@
 - White House `news` / `briefings-statements` / `presidential-actions`
 - House Oversight / House Intelligence
 - Senate Intelligence / Senate HSGAC
+- NBC (`politics` / `us-news` / `science`) 直连非聚合 feed（补媒体侧样本）
 - 官方分页窗口（`paged_url_template`）用于扩大时间跨度
 
 ---
@@ -135,6 +136,7 @@ python scraper.py --max-workers 8
 > - 真实性过滤摘要（原始条目数、过滤后条目数、主要拒绝原因）
 > - 日期解析兜底（RSS 缺失日期时尝试从 URL 路径提取 `YYYY/MM/DD`）
 > - 分页 feed 合并去重（按 URL/标题日期去重，并在连续无新增页后提前停止）
+> - “alien”语义消歧（移民语境如 `illegal alien` 不再被误判为 UFO/NHI）
 > - UFO 事件语义合并（按周+actor+action+topic 合并同事件跨源报道）
 > - 官方-媒体机制配对（区分 `strict` 与 `proxy_strict`，输出 `official_media_pairs.json`）
 > - 关联时间窗口内的危机↔UFO关联对（默认60天）
