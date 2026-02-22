@@ -823,6 +823,7 @@ class TestStrictLogic(unittest.TestCase):
 
     def test_causal_ml_strict_pass_requires_non_fallback_models(self):
         passed = model_causal_ml.compute_causal_ml_pass(
+            att_positive=True,
             ate_positive=True,
             ate_significant=True,
             nuisance_model_ready=False,
@@ -832,6 +833,7 @@ class TestStrictLogic(unittest.TestCase):
         self.assertFalse(passed)
 
         passed2 = model_causal_ml.compute_causal_ml_pass(
+            att_positive=True,
             ate_positive=True,
             ate_significant=True,
             nuisance_model_ready=True,
@@ -839,6 +841,16 @@ class TestStrictLogic(unittest.TestCase):
             heterogeneity_estimated=True,
         )
         self.assertTrue(passed2)
+
+        passed3 = model_causal_ml.compute_causal_ml_pass(
+            att_positive=False,
+            ate_positive=True,
+            ate_significant=True,
+            nuisance_model_ready=True,
+            cate_model_ready=True,
+            heterogeneity_estimated=True,
+        )
+        self.assertFalse(passed3)
 
     def test_causal_ml_nuisance_uses_linear_ridge_without_sklearn(self):
         old_ready = model_causal_ml.SKLEARN_READY

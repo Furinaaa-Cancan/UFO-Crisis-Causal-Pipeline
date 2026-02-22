@@ -347,6 +347,26 @@ def orthogonal_ate(
     return ate, y_res, t_res, den
 
 
+def orthogonal_att_treated(
+    ts: List[int],  # type: ignore
+    y_res: List[float],  # type: ignore
+    t_res: List[float],  # type: ignore
+) -> float:
+    """
+    在 treated 子样本上用残差回归估计 ATT，避免把 CATE 模型噪声直接当作 ATT。
+    """
+    num = 0.0
+    den = 0.0
+    for z, yr, tr in zip(ts, y_res, t_res):
+        if int(z) != 1:
+            continue
+        num += float(yr) * float(tr)
+        den += float(tr) * float(tr)
+    if den <= 1e-9:
+        return 0.0
+    return num / den
+
+
 def permutation_pvalue(
     y_res: List[float],  # type: ignore
     t_res: List[float],  # type: ignore
@@ -447,6 +467,7 @@ def summarize_heterogeneity(tau_hat: List[float]) -> Dict[str, float | None]:
 
 
 def compute_causal_ml_pass(
+    att_positive: bool,
     ate_positive: bool,
     ate_significant: bool,
     nuisance_model_ready: bool,
@@ -454,7 +475,8 @@ def compute_causal_ml_pass(
     heterogeneity_estimated: bool,
 ) -> bool:
     return (
-        ate_positive
+        att_positive
+        and ate_positive
         and ate_significant
         and nuisance_model_ready
         and cate_model_ready
@@ -503,6 +525,7 @@ def main() -> None:
             "estimand": "",
         },
         "gates": {
+            "att_positive": False,
             "ate_positive": False,
             "ate_significant": False,
             "nuisance_model_ready": False,
@@ -554,8 +577,7 @@ def main() -> None:
                 cate_hat, cate_method = estimate_cate(data, y_res, t_res)
                 hetero = summarize_heterogeneity(cate_hat)
 
-                treated_tau = [tau for tau, t in zip(cate_hat, ts) if t == 1]
-                att = mean(treated_tau) if treated_tau else ate
+                att = orthogonal_att_treated(ts, y_res, t_res)
                 ci = None
                 if null:
                     ci = [round(quantile(null, 0.025), 6), round(quantile(null, 0.975), 6)]  # type: ignore
@@ -580,11 +602,13 @@ def main() -> None:
                 out["estimation"]["cate_std_proxy"] = (round(cate_std_proxy, 6) if cate_std_proxy is not None else None)  # type: ignore
                 out["estimation"]["heterogeneity"] = hetero  # type: ignore
 
+                att_positive = att > 0
                 ate_positive = ate > 0
                 ate_significant = p_value < 0.05
                 nuisance_model_ready = nuisance_method != "mean_fallback"
                 cate_model_ready = cate_method not in ("constant_cate_fallback", "no_data")
                 causal_ml_passed = compute_causal_ml_pass(
+                    att_positive=att_positive,
                     ate_positive=ate_positive,
                     ate_significant=ate_significant,
                     nuisance_model_ready=nuisance_model_ready,
@@ -592,6 +616,7 @@ def main() -> None:
                     heterogeneity_estimated=heterogeneity_estimated,
                 )
 
+                out["gates"]["att_positive"] = att_positive  # type: ignore
                 out["gates"]["ate_positive"] = ate_positive  # type: ignore
                 out["gates"]["ate_significant"] = ate_significant  # type: ignore
                 out["gates"]["nuisance_model_ready"] = nuisance_model_ready  # type: ignore
