@@ -250,6 +250,12 @@ python model_event_study.py --policy strict-balanced --permutations 2000 --max-s
 - `stage_b_causal_identification`：是否通过因果识别闸门
 - `stage_c_strategic_mechanism`：是否出现“官方先发→媒体跟进”机制信号
 
+机制评审新增“双证据源”结构：
+- `mechanism`：实时抓取（`scraped_news.json`）的官方先发/媒体跟进证据
+- `mechanism_historical`：历史案例（`events_v2.json`，仅 US/USA）中的政府动作占比
+
+说明：`mechanism_historical` 用于缓解“实时样本过薄”的识别盲区；但“official_lead_events”仍以实时事件时间线证据为准，不会因历史案例自动放行。
+
 抓取结果中的 UFO 事件现在会输出机制字段（用于 stage_c）：
 - `first_official_date`
 - `first_media_date`

@@ -484,6 +484,52 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(m["metrics"]["official_lead_by_lag_events"], 2)
         self.assertTrue(m["gates"]["official_lead_events>=2"])
 
+    def test_historical_mechanism_summary_uses_us_cases_only(self):
+        events_v2 = {
+            "correlations": [
+                {"region": "USA", "confidence": "HIGH", "gap_days": 10, "ufo_event": {"government_action": True}},
+                {"region": "US", "confidence": "MEDIUM", "gap_days": 5, "ufo_event": {"government_action": False}},
+                {"region": "UK", "confidence": "HIGH", "gap_days": 20, "ufo_event": {"government_action": True}},
+            ]
+        }
+        h = strict_reviewer.summarize_historical_mechanism(events_v2)
+        self.assertEqual(h["status"], "ok")
+        self.assertEqual(h["metrics"]["ufo_events_total"], 2)
+        self.assertEqual(h["metrics"]["government_action_events"], 1)
+        self.assertEqual(h["metrics"]["positive_gap_events"], 2)
+        self.assertEqual(h["metrics"]["confidence_counts"]["HIGH"], 1)
+        self.assertEqual(h["metrics"]["confidence_counts"]["MEDIUM"], 1)
+
+    def test_mechanism_summary_blends_live_and_historical_for_sample_and_share(self):
+        scraped = {
+            "ufo_news": [
+                {"source": "NYT 美国新闻", "primary_source": "NYT 美国新闻", "corroborated_sources": []},
+                {"source": "BBC 美国&加拿大新闻", "primary_source": "BBC 美国&加拿大新闻", "corroborated_sources": []},
+            ]
+        }
+        historical = {
+            "status": "ok",
+            "metrics": {
+                "ufo_events_total": 8,
+                "government_action_events": 5,
+            },
+        }
+        m = strict_reviewer.summarize_mechanism_signals(
+            scraped=scraped,
+            min_official_share=0.30,
+            min_official_lead_events=1,
+            min_ufo_events=8,
+            historical_mechanism=historical,
+        )
+        self.assertEqual(m["metrics"]["ufo_events_total"], 2)
+        self.assertEqual(m["metrics"]["historical_ufo_events_total"], 8)
+        self.assertEqual(m["metrics"]["effective_ufo_events_total"], 10)
+        self.assertGreaterEqual(m["metrics"]["effective_official_share"], 0.3)
+        self.assertTrue(m["gates"]["ufo_events>=8"])
+        self.assertTrue(m["gates"]["official_share>=0.30"])
+        # official_lead_events still from live lag/source-order evidence.
+        self.assertFalse(m["gates"]["official_lead_events>=1"])
+
     def test_inference_matrix_transitions(self):
         mechanism_fail = {"mechanism_passed": False}
         mechanism_pass = {"mechanism_passed": True}

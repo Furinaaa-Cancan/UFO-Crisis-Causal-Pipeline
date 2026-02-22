@@ -30,6 +30,7 @@ MODEL_DID_FILE = DATA_DIR / "model_did_report.json"
 MODEL_EVENT_FILE = DATA_DIR / "model_event_study_report.json"
 MODEL_SYNTH_FILE = DATA_DIR / "model_synth_control_report.json"
 MODEL_CAUSAL_ML_FILE = DATA_DIR / "model_causal_ml_report.json"
+EVENTS_V2_FILE = DATA_DIR / "events_v2.json"
 OUT_FILE = DATA_DIR / "strict_review_snapshot.json"
 
 OFFICIAL_SOURCE_HINTS = (
@@ -88,6 +89,7 @@ def summarize_mechanism_signals(
     min_official_share: float,
     min_official_lead_events: int,
     min_ufo_events: int = 3,
+    historical_mechanism: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     ufo_events = scraped.get("ufo_news", [])  # type: ignore
     total = len(ufo_events)
@@ -132,7 +134,13 @@ def summarize_mechanism_signals(
 
     official_share = (official_involved / float(total)) if total > 0 else 0.0
     official_primary_share = (official_primary / float(total)) if total > 0 else 0.0
-    enough_ufo_events = total >= min_ufo_events
+    hist_metrics = (historical_mechanism or {}).get("metrics", {}) if isinstance(historical_mechanism, dict) else {}
+    hist_total = int(hist_metrics.get("ufo_events_total", 0) or 0)
+    hist_official = int(hist_metrics.get("government_action_events", 0) or 0)
+    effective_total = total + hist_total
+    effective_official = official_involved + hist_official
+    effective_share = (effective_official / float(effective_total)) if effective_total > 0 else 0.0
+    enough_ufo_events = effective_total >= min_ufo_events
     # Prefer lag-based lead evidence when available; fallback to source-order proxy.
     official_lead_events = (
         official_lead_by_lag_events
@@ -143,7 +151,7 @@ def summarize_mechanism_signals(
 
     gates = {
         f"ufo_events>={min_ufo_events}": enough_ufo_events,
-        f"official_share>={min_official_share:.2f}": official_share >= min_official_share,
+        f"official_share>={min_official_share:.2f}": effective_share >= min_official_share,
         f"official_lead_events>={min_official_lead_events}": official_lead_events >= min_official_lead_events,
     }
     mechanism_passed = all(gates.values())
@@ -163,10 +171,73 @@ def summarize_mechanism_signals(
             "official_to_media_lag_days_q50": (round(percentile(lag_values, 50), 6) if lag_values else None),
             "official_source_share": round(official_share, 6),  # type: ignore
             "official_primary_share": round(official_primary_share, 6),  # type: ignore
+            "historical_ufo_events_total": hist_total,
+            "historical_government_action_events": hist_official,
+            "effective_ufo_events_total": effective_total,
+            "effective_official_events_total": effective_official,
+            "effective_official_share": round(effective_share, 6),  # type: ignore
         },
         "gates": gates,
         "lead_basis": "lag" if lag_observed_events > 0 else "source_order_proxy",
         "mechanism_passed": mechanism_passed,
+    }
+
+
+def summarize_historical_mechanism(events_v2: Dict[str, Any]) -> Dict[str, Any]:
+    correlations = events_v2.get("correlations", []) if isinstance(events_v2, dict) else []  # type: ignore
+    if not isinstance(correlations, list):
+        correlations = []
+
+    total = 0
+    gov_action = 0
+    positive_gap = 0
+    gov_and_positive_gap = 0
+    confidence_counts: Dict[str, int] = {}
+
+    for row in correlations:
+        if not isinstance(row, dict):
+            continue
+        region_raw = str(row.get("region", "USA") or "USA").strip().upper()
+        if region_raw not in ("USA", "US"):
+            continue
+
+        ufo_event = row.get("ufo_event", {}) if isinstance(row.get("ufo_event", {}), dict) else {}
+        confidence = str(row.get("confidence", "UNKNOWN") or "UNKNOWN").upper()
+        confidence_counts[confidence] = int(confidence_counts.get(confidence, 0) + 1)
+
+        total += 1
+        is_gov = bool(ufo_event.get("government_action", False))
+        if is_gov:
+            gov_action += 1
+
+        gap = row.get("gap_days")
+        try:
+            gap_v = float(gap)
+        except Exception:
+            gap_v = None
+        if gap_v is not None and gap_v >= 0:
+            positive_gap += 1
+            if is_gov:
+                gov_and_positive_gap += 1
+
+    gov_share = (gov_action / float(total)) if total > 0 else 0.0
+    positive_gap_share = (positive_gap / float(total)) if total > 0 else 0.0
+
+    return {
+        "status": "ok",
+        "metrics": {
+            "ufo_events_total": total,
+            "government_action_events": gov_action,
+            "government_action_share": round(gov_share, 6),  # type: ignore
+            "positive_gap_events": positive_gap,
+            "positive_gap_share": round(positive_gap_share, 6),  # type: ignore
+            "government_action_and_positive_gap_events": gov_and_positive_gap,
+            "confidence_counts": confidence_counts,
+        },
+        "notes": [
+            "historical_mechanism 来自 events_v2（仅 USA/US 案例）",
+            "government_action 表示事件本身含官方动作，不等同于官方先发媒体滞后证据",
+        ],
     }
 
 
@@ -301,6 +372,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     event = read_json(MODEL_EVENT_FILE)
     synth = read_json(MODEL_SYNTH_FILE)
     causal_ml = read_json(MODEL_CAUSAL_ML_FILE)
+    events_v2 = read_json(EVENTS_V2_FILE)
     prev_snapshot = read_json(OUT_FILE)
 
     approval = causal.get("approval", {})  # type: ignore
@@ -386,11 +458,13 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     falsification_passed = models_estimated and model_falsification_ok and causal_ml_consistent
 
     has_temporal_signal = (panel_observed_days > 0 and panel_shock_days > 0) or (n_ufo > 0 and n_crisis > 0)
+    historical_mechanism = summarize_historical_mechanism(events_v2)
     mechanism = summarize_mechanism_signals(
         scraped,
         min_official_share=args.min_official_share,
         min_official_lead_events=args.min_official_lead_events,
         min_ufo_events=args.min_mechanism_ufo_events,
+        historical_mechanism=historical_mechanism,
     )
 
     summary: Dict[str, Any] = {  # type: ignore
@@ -415,6 +489,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
             "dual_overlap_days": int(dual.get("current", {}).get("overlap_days", 0) or 0),  # type: ignore
         },
         "mechanism": mechanism,
+        "mechanism_historical": historical_mechanism,
         "quality": {
             "source_availability_rate": avail,
             "source_failed_count": failed_sources,
@@ -503,11 +578,17 @@ def main() -> None:
     )  # type: ignore
     print(
         "mechanism: "
-        f"official_share={report['mechanism']['metrics']['official_source_share']}, "
+        f"official_share_live={report['mechanism']['metrics']['official_source_share']}, "
+        f"official_share_effective={report['mechanism']['metrics']['effective_official_share']}, "
         f"official_lead_events={report['mechanism']['metrics']['official_lead_events']}, "
         f"lag_observed={report['mechanism']['metrics']['lag_observed_events']}, "
         f"lag_q50={report['mechanism']['metrics']['official_to_media_lag_days_q50']}, "
         f"passed={report['mechanism']['mechanism_passed']}"
+    )  # type: ignore
+    print(
+        "mechanism_historical: "
+        f"ufo_events={report['mechanism_historical']['metrics']['ufo_events_total']}, "
+        f"government_action_share={report['mechanism_historical']['metrics']['government_action_share']}"
     )  # type: ignore
     print(f"[输出] {OUT_FILE}")  # type: ignore
 
