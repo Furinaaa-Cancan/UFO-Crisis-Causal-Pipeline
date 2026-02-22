@@ -209,6 +209,73 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(scraper.keyword_hits("forward guidance update", ["war"]), [])
         self.assertEqual(scraper.keyword_hits("war update", ["war"]), ["war"])
 
+    def test_collect_source_urls_for_retry_merges_and_dedupes(self):
+        src = {
+            "url": "https://a.example/rss",
+            "fallback_url": "https://b.example/rss",
+            "fallback_urls": [
+                "https://b.example/rss",
+                "https://c.example/rss",
+                "",
+                "https://a.example/rss",
+            ],
+        }
+        urls = scraper.collect_source_urls_for_retry(src)
+        self.assertEqual(
+            urls,
+            [
+                "https://a.example/rss",
+                "https://b.example/rss",
+                "https://c.example/rss",
+            ],
+        )
+
+    def test_base_authenticity_prefers_official_items_with_parseable_timestamp(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        items = [
+            {
+                "source": "White House 新闻稿",
+                "source_type": "rss",
+                "category": "crisis",
+                "weight": 3,
+                "title": "White House and DOJ announce investigation update",
+                "description": "Federal investigation and White House response",
+                "date": today,
+                "published_at": "2026-02-22T10:30:00+00:00",
+                "date_parsed_ok": True,
+                "url": "https://www.whitehouse.gov/a",
+                "domain": "www.whitehouse.gov",
+            },
+            {
+                "source": "White House 新闻稿",
+                "source_type": "rss",
+                "category": "crisis",
+                "weight": 3,
+                "title": "White House and DOJ announce investigation update 2",
+                "description": "Federal investigation and White House response",
+                "date": today,
+                "published_at": None,
+                "date_parsed_ok": True,
+                "url": "https://www.whitehouse.gov/b",
+                "domain": "www.whitehouse.gov",
+            },
+        ]
+        accepted, rejected = scraper.evaluate_base_authenticity(
+            items=items,
+            lookback_days=30,
+            policy=scraper.POLICY_CONFIGS[scraper.POLICY_LENIENT],
+        )
+        self.assertEqual(len(rejected), 0)
+        self.assertEqual(len(accepted), 2)
+        by_url = {x["url"]: x for x in accepted}
+        score_ts = by_url["https://www.whitehouse.gov/a"]["authenticity"]["base_score"]
+        score_no_ts = by_url["https://www.whitehouse.gov/b"]["authenticity"]["base_score"]
+        self.assertGreater(score_ts, score_no_ts)
+        self.assertIn(
+            "official_missing_published_at",
+            by_url["https://www.whitehouse.gov/b"]["authenticity"]["flags"],
+        )
+
     def test_synth_pre_dates_exclude_shock_day(self):
         start = causal_analyzer.parse_date("2026-01-01")
         us_dates = [start + timedelta(days=i) for i in range(10)]
@@ -434,6 +501,8 @@ class TestStrictLogic(unittest.TestCase):
         self.assertTrue(strict_reviewer.is_official_source("Pentagon / DoD 新闻稿"))
         self.assertTrue(strict_reviewer.is_official_source("White House 新闻稿"))
         self.assertFalse(strict_reviewer.is_official_source("BBC 美国&加拿大新闻"))
+        self.assertTrue(scraper.source_is_official("Pentagon / DoD 新闻稿"))
+        self.assertFalse(scraper.source_is_official("Google News - AARO非人类智慧（补充）"))
 
     def test_mechanism_summary_detects_official_lead_proxy(self):
         scraped = {

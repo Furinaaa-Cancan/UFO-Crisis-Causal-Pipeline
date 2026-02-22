@@ -83,7 +83,14 @@
 **字段说明：**
 - `active: false` — 暂时禁用该来源（如 VICE 已停刊）
 - `fallback_url` — 主 URL 失败时自动重试的备用地址（如 Reuters 迁移后的新路径）
+- `fallback_urls` — 多备用地址列表（按顺序重试，适合官方站点多入口）
 - `weight` — 影响结果排序优先级，政府/通讯社来源权重最高
+
+当前已扩展官方源（DoD / White House / House / Senate）并默认开启：
+- DoD Releases 多入口 feed
+- White House `news` / `briefings-statements` / `presidential-actions`
+- House Oversight / House Intelligence
+- Senate Intelligence / Senate HSGAC
 
 ---
 
@@ -269,6 +276,7 @@ python model_event_study.py --policy strict-balanced --permutations 2000 --max-s
 - `corroboration_timeline`
 
 并会额外写出 `data/official_lead_event_candidates.json`，用于逐条审计“为何 official_lead_events 仍为 0”。
+为提升机制识别稳定性，抓取器会优先保留“可解析发布时间（published_at）”的条目，尤其是官方源条目。
 
 对应结论等级：
 - `TEMPORAL_ASSOCIATION_ONLY`（仅相关）

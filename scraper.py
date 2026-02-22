@@ -457,6 +457,12 @@ def parse_feed_date(date_str):
     return date_iso, parsed_ok
 
 
+def has_parseable_published_at(item):
+    if item.get("published_at_parsed_ok"):  # type: ignore
+        return True
+    return parse_iso_datetime(item.get("published_at")) is not None  # type: ignore
+
+
 def canonicalize_url(url):
     if not url:
         return ""
@@ -508,6 +514,8 @@ def source_is_aggregator(source_name):
 
 def source_is_official(source_name):
     lowered = (source_name or "").lower()
+    if source_is_aggregator(lowered):
+        return False
     return any(h in lowered for h in OFFICIAL_SOURCE_HINTS)
 
 
@@ -703,10 +711,44 @@ def fetch_rss_url(url, source, max_items_per_source):
     return items, None
 
 
+def collect_source_urls_for_retry(source):
+    urls = []
+
+    primary = str(source.get("url", "") or "").strip()  # type: ignore
+    if primary:
+        urls.append(primary)
+
+    fallback_one = str(source.get("fallback_url", "") or "").strip()  # type: ignore
+    if fallback_one:
+        urls.append(fallback_one)
+
+    fallback_many = source.get("fallback_urls", [])  # type: ignore
+    if isinstance(fallback_many, list):
+        for row in fallback_many:
+            u = str(row or "").strip()
+            if u:
+                urls.append(u)
+
+    out = []
+    seen = set()
+    for u in urls:
+        if u in seen:
+            continue
+        seen.add(u)
+        out.append(u)
+    return out
+
+
 def fetch_rss(source, max_items_per_source):
-    urls_to_try = [source["url"]]  # type: ignore
-    if source.get("fallback_url"):  # type: ignore
-        urls_to_try.append(source["fallback_url"])  # type: ignore
+    urls_to_try = collect_source_urls_for_retry(source)
+    if not urls_to_try:
+        return {
+            "items": None,
+            "error": "missing_source_url",
+            "fetched_url": "",
+            "attempted_urls": [],
+            "used_fallback": False,
+        }
 
     last_error = None
     attempted_urls = []
@@ -860,6 +902,8 @@ def evaluate_base_authenticity(items, lookback_days, policy):
     rejected = []
 
     for item in items:
+        source_name = str(item.get("source", "") or "")  # type: ignore
+        is_official = source_is_official(source_name)
         title = normalize_text(item.get("title", ""))  # type: ignore
         description = strip_html(item.get("description", ""))  # type: ignore
         text = f"{title} {description}".lower()
@@ -909,6 +953,7 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         national_hits = keyword_hits(text, NATIONAL_POLITICAL_CONTEXT_KEYWORDS)
         item["national_context_relevance"] = len(national_hits)  # type: ignore
         item["national_context_keywords"] = national_hits[:12]  # type: ignore
+        item["is_official_source"] = is_official  # type: ignore
 
         weight = item.get("weight", 1)  # type: ignore
         if weight >= 3:
@@ -967,6 +1012,15 @@ def evaluate_base_authenticity(items, lookback_days, policy):
         else:
             score -= 12
             hard_reasons.append("date_parse_failed")
+
+        published_at_obj = parse_iso_datetime(item.get("published_at"))  # type: ignore
+        item["published_at_parsed_ok"] = bool(published_at_obj)  # type: ignore
+        if published_at_obj is not None:
+            # 机制识别依赖“谁先发”的时间戳；官方源有发布时间时给更高权重。
+            score += 6 if is_official else 2
+        elif is_official:
+            score -= 5
+            flags.append("official_missing_published_at")
 
         if date_obj is None:
             hard_reasons.append("invalid_date")
@@ -1229,6 +1283,7 @@ def collapse_claim_clusters(items):
             key=lambda x: (
                 x.get("authenticity", {}).get("final_score", 0),  # type: ignore
                 x.get("weight", 1),  # type: ignore
+                1 if has_parseable_published_at(x) else 0,  # type: ignore
                 1 if x.get("source_type") == "rss" else 0,  # type: ignore
                 len(x.get("title", "")),  # type: ignore
             ),
@@ -1316,6 +1371,7 @@ def merge_crisis_events_by_signature(events):
             key=lambda x: (
                 x.get("authenticity", {}).get("final_score", 0),  # type: ignore
                 x.get("cluster_size", 1),  # type: ignore
+                1 if has_parseable_published_at(x) else 0,  # type: ignore
                 len(x.get("title", "")),  # type: ignore
             ),
             reverse=True,
@@ -1394,6 +1450,7 @@ def split_and_sort_news(items):
         return (
             x.get("date", ""),  # type: ignore
             x.get("authenticity", {}).get("final_score", 0),  # type: ignore
+            1 if has_parseable_published_at(x) else 0,  # type: ignore
             x.get("weight", 1),  # type: ignore
         )
 
@@ -1623,11 +1680,13 @@ def build_source_health_report(source_meta, all_sources, active_sources, source_
             })
 
     for row in failed[:8]:  # type: ignore
-        if row.get("type") == "rss" and not row.get("fallback_url"):  # type: ignore
+        fallback_urls = row.get("fallback_urls", [])  # type: ignore
+        has_fallback = bool(row.get("fallback_url")) or (isinstance(fallback_urls, list) and len(fallback_urls) > 0)  # type: ignore
+        if row.get("type") == "rss" and not has_fallback:  # type: ignore
             recommendations.append({
                 "category": row.get("category"),  # type: ignore
                 "issue": "missing_fallback_url",
-                "detail": f"{row.get('source')} 抓取失败且未配置 fallback_url",  # type: ignore
+                "detail": f"{row.get('source')} 抓取失败且未配置 fallback_url/fallback_urls",  # type: ignore
                 "backup_candidates": [],
             })
 
@@ -1691,6 +1750,8 @@ def scrape_all(
             task = progress.add_task("抓取中...", total=len(futures))  # type: ignore
             for future in as_completed(futures):
                 src = futures[future]  # type: ignore
+                source_urls = collect_source_urls_for_retry(src)
+                source_fallback_urls = source_urls[1:] if len(source_urls) > 1 else []
                 progress.update(task, description=f"[{src.get('type','rss').upper()}] {src['name'][:30]}")  # type: ignore
                 try:
                     result = future.result()  # type: ignore
@@ -1705,7 +1766,8 @@ def scrape_all(
                         "status": "failed",
                         "item_count": 0,
                         "url": src.get("url", ""),  # type: ignore
-                        "fallback_url": src.get("fallback_url"),  # type: ignore
+                        "fallback_url": source_fallback_urls[0] if source_fallback_urls else None,
+                        "fallback_urls": source_fallback_urls,
                         "fetched_url": src.get("url", ""),  # type: ignore
                         "used_fallback": False,
                         "attempted_urls": [src.get("url", "")],  # type: ignore
@@ -1730,7 +1792,8 @@ def scrape_all(
                         "status": "failed",
                         "item_count": 0,
                         "url": src.get("url", ""),  # type: ignore
-                        "fallback_url": src.get("fallback_url"),  # type: ignore
+                        "fallback_url": source_fallback_urls[0] if source_fallback_urls else None,
+                        "fallback_urls": source_fallback_urls,
                         "fetched_url": fetched_url,
                         "used_fallback": used_fallback,
                         "attempted_urls": attempted_urls,
@@ -1748,7 +1811,8 @@ def scrape_all(
                         "status": "ok" if len(items) > 0 else "empty",  # type: ignore
                         "item_count": len(items),  # type: ignore
                         "url": src.get("url", ""),  # type: ignore
-                        "fallback_url": src.get("fallback_url"),  # type: ignore
+                        "fallback_url": source_fallback_urls[0] if source_fallback_urls else None,
+                        "fallback_urls": source_fallback_urls,
                         "fetched_url": fetched_url,
                         "used_fallback": used_fallback,
                         "attempted_urls": attempted_urls,
