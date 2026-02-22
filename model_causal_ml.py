@@ -146,6 +146,82 @@ def build_dataset(rows: List[dict], crisis_threshold: float) -> tuple[List[dict]
     return data, feature_names
 
 
+def _build_cv_folds(n: int, n_folds: int, seed: int) -> List[List[int]]:
+    idx = list(range(n))
+    rng = make_rng(seed)
+    rng.shuffle(idx)
+    bins: List[List[int]] = [[] for _ in range(max(1, n_folds))]
+    for pos, i in enumerate(idx):
+        bins[pos % len(bins)].append(i)
+    return [b for b in bins if b]
+
+
+def _fit_ridge_linear(
+    xs: List[List[float]],  # type: ignore
+    ys: List[float],  # type: ignore
+    alpha: float = 1.0,
+    sample_weight: List[float] | None = None,  # type: ignore
+) -> List[float]:
+    if not xs or not ys:
+        return []
+    p = len(xs[0]) + 1  # intercept + features
+    xtx = [[0.0 for _ in range(p)] for _ in range(p)]
+    xty = [0.0 for _ in range(p)]
+
+    for i, (x, y) in enumerate(zip(xs, ys)):
+        w = float(sample_weight[i]) if sample_weight else 1.0
+        row = [1.0] + [float(v) for v in x]
+        for a in range(p):
+            xty[a] += w * row[a] * float(y)
+            for b in range(p):
+                xtx[a][b] += w * row[a] * row[b]
+
+    # 不正则化截距，只正则化斜率项。
+    for j in range(1, p):
+        xtx[j][j] += float(alpha)
+
+    # 高斯-约当消元（维度很小：~17x17）
+    aug = [xtx[i][:] + [xty[i]] for i in range(p)]  # type: ignore
+    eps = 1e-12
+    for col in range(p):
+        pivot = max(range(col, p), key=lambda r: abs(aug[r][col]))
+        if abs(aug[pivot][col]) < eps:
+            continue
+        if pivot != col:
+            aug[col], aug[pivot] = aug[pivot], aug[col]
+
+        div = aug[col][col]
+        for j in range(col, p + 1):
+            aug[col][j] /= div
+
+        for r in range(p):
+            if r == col:
+                continue
+            fac = aug[r][col]
+            if abs(fac) < eps:
+                continue
+            for j in range(col, p + 1):
+                aug[r][j] -= fac * aug[col][j]
+
+    coef = [0.0 for _ in range(p)]
+    for i in range(p):
+        if abs(aug[i][i]) >= eps:
+            coef[i] = float(aug[i][p])
+    return coef
+
+
+def _predict_linear(xs: List[List[float]], coef: List[float]) -> List[float]:  # type: ignore
+    if not xs or not coef:
+        return [0.0 for _ in xs]
+    out = []
+    for x in xs:
+        y = coef[0]
+        for c, v in zip(coef[1:], x):
+            y += float(c) * float(v)
+        out.append(float(y))
+    return out
+
+
 def estimate_nuisance(
     data: List[dict],  # type: ignore
     folds: int,
@@ -163,8 +239,34 @@ def estimate_nuisance(
     m_hat = [fallback_m for _ in range(n)]
     e_hat = [fallback_e for _ in range(n)]
 
-    if not SKLEARN_READY or n < 20:
+    if n < 20:
         return m_hat, e_hat, "mean_fallback"
+
+    if not SKLEARN_READY:
+        n_folds = max(2, min(folds, n))
+        bins = _build_cv_folds(n, n_folds, seed=SEED + 9)
+        for fold_id, test_idx in enumerate(bins, start=1):
+            test_set = set(test_idx)
+            train_idx = [i for i in range(n) if i not in test_set]
+            if not train_idx:
+                continue
+            x_train = [xs[i] for i in train_idx]
+            y_train = [ys[i] for i in train_idx]
+            t_train = [float(ts[i]) for i in train_idx]
+            x_test = [xs[i] for i in test_idx]
+
+            y_coef = _fit_ridge_linear(x_train, y_train, alpha=1.0)
+            y_pred = _predict_linear(x_test, y_coef)
+            for j, idx in enumerate(test_idx):
+                m_hat[idx] = float(y_pred[j])
+
+            t_coef = _fit_ridge_linear(x_train, t_train, alpha=1.0)
+            t_pred = _predict_linear(x_test, t_coef)
+            for j, idx in enumerate(test_idx):
+                e_hat[idx] = float(t_pred[j])
+
+        e_hat = [min(0.97, max(0.03, x)) for x in e_hat]
+        return m_hat, e_hat, "cross_fitted_linear_ridge"
 
     n_folds = max(2, min(folds, n))
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=SEED)
@@ -251,12 +353,28 @@ def estimate_cate(
     if not data:
         return [], "no_data"
 
-    # sklearn 不可用时退化为常数 CATE（只保留 ATE 推断）
+    # sklearn 不可用时，使用带权线性正则回归估计个体效应代理。
     if not SKLEARN_READY:
-        ate_like_den = sum(x * x for x in t_res)
-        ate_like = (sum(a * b for a, b in zip(t_res, y_res)) / ate_like_den) if ate_like_den > 1e-9 else 0.0
-        return [ate_like for _ in data], "constant_cate_fallback"
+        if len(data) < 20:
+            ate_like_den = sum(x * x for x in t_res)
+            ate_like = (sum(a * b for a, b in zip(t_res, y_res)) / ate_like_den) if ate_like_den > 1e-9 else 0.0
+            return [ate_like for _ in data], "constant_cate_fallback"
 
+        xs = [r["x"] for r in data]
+        target = []
+        weights = []
+        for yr, tr in zip(y_res, t_res):
+            adj = tr
+            if abs(adj) < 1e-3:
+                adj = 1e-3 if adj >= 0 else -1e-3
+            target.append(yr / adj)
+            weights.append(max(1e-6, tr * tr))
+
+        coef = _fit_ridge_linear(xs, target, alpha=2.0, sample_weight=weights)
+        tau = _predict_linear(xs, coef)
+        return [float(x) for x in tau], "orthogonal_linear_ridge_proxy"
+
+    # sklearn 可用时采用随机森林代理。
     xs = [r["x"] for r in data]
     target = []
     weights = []

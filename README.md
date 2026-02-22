@@ -266,7 +266,7 @@ python strict_reviewer.py \
 ```
 
 > 注意：模型脚本在样本不足或对照组缺失时会明确返回 `pending/blocked`，不会伪造因果结论。
-> 注意：`model_causal_ml.py` 只有在非 fallback 建模链路（非 `mean_fallback` / 非 `constant_cate_fallback`）且异质性可估时才允许 `causal_ml_passed=true`。
+> 注意：`model_causal_ml.py` 只有在非 fallback 建模链路（例如 `cross_fitted_rf` 或 `cross_fitted_linear_ridge`，且非 `constant_cate_fallback`）并且异质性可估时才允许 `causal_ml_passed=true`。
 > 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，
 > 以避免触发国家 RSS 联网抓取，保证离线/复现语义一致。
 

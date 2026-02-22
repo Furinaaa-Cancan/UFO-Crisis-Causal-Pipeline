@@ -350,6 +350,50 @@ class TestStrictLogic(unittest.TestCase):
         )
         self.assertTrue(passed2)
 
+    def test_causal_ml_nuisance_uses_linear_ridge_without_sklearn(self):
+        old_ready = model_causal_ml.SKLEARN_READY
+        model_causal_ml.SKLEARN_READY = False
+        try:
+            data = []
+            for i in range(60):
+                x1 = float(i % 10)
+                x2 = float((i // 10) % 6)
+                t = 1 if (i % 5) in (0, 1) else 0
+                y = 0.4 * x1 + 1.5 * t + 0.1 * x2
+                data.append({"x": [x1, x2], "y": y, "t": t})
+
+            m_hat, e_hat, method = model_causal_ml.estimate_nuisance(data, folds=5)
+            self.assertEqual(method, "cross_fitted_linear_ridge")
+            self.assertEqual(len(m_hat), 60)
+            self.assertEqual(len(e_hat), 60)
+            self.assertTrue(all(0.03 <= x <= 0.97 for x in e_hat))
+        finally:
+            model_causal_ml.SKLEARN_READY = old_ready
+
+    def test_causal_ml_cate_uses_linear_proxy_without_sklearn(self):
+        old_ready = model_causal_ml.SKLEARN_READY
+        model_causal_ml.SKLEARN_READY = False
+        try:
+            data = []
+            for i in range(80):
+                x1 = float(i % 10)
+                x2 = float((i // 10) % 8)
+                t = 1 if (i % 4) in (0, 1) else 0
+                y = 0.3 * x1 + 2.0 * t + 0.2 * x2
+                data.append({"x": [x1, x2], "y": y, "t": t})
+
+            ys = [float(r["y"]) for r in data]
+            ts = [int(r["t"]) for r in data]
+            m_hat, e_hat, _ = model_causal_ml.estimate_nuisance(data, folds=4)
+            _, y_res, t_res, _ = model_causal_ml.orthogonal_ate(ys, ts, m_hat, e_hat)
+            tau, method = model_causal_ml.estimate_cate(data, y_res, t_res)
+
+            self.assertEqual(method, "orthogonal_linear_ridge_proxy")
+            self.assertEqual(len(tau), 80)
+            self.assertGreater(max(tau) - min(tau), 0.0)
+        finally:
+            model_causal_ml.SKLEARN_READY = old_ready
+
     def test_control_panel_date_grid_is_inclusive(self):
         start = causal_analyzer.parse_date("2026-01-01")
         end = causal_analyzer.parse_date("2026-01-03")
