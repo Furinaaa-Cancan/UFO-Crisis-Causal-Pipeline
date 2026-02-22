@@ -297,7 +297,7 @@ python historical_backfill.py --start-date 2010-01-01 --end-date 2016-12-31 --qu
 python historical_backfill.py --start-date 1990-01-01 --end-date 1999-12-31 --queries ufo,crisis --allow-partial --min-split-days 90
 
 # 若网络层不稳定：打开分段日志，缩短超时并减少重试（默认禁用系统代理）
-python -u historical_backfill.py --start-date 1980-01-01 --end-date 1981-12-31 --queries ufo,crisis --allow-partial --chunk-days 365 --request-timeout 20 --request-retries 2 --verbose-chunks
+python -u historical_backfill.py --start-date 1980-01-01 --end-date 1981-12-31 --queries ufo,crisis --allow-partial --chunk-days 365 --request-timeout 20 --request-retries 2 --rate-limit-cooldown 60 --retry-backoff-max 180 --verbose-chunks
 ```
 输出：
 - `data/causal_panel.json`（补充历史日度面板）

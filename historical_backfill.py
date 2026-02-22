@@ -32,6 +32,8 @@ REQUEST_RETRIES = 3
 CHUNK_DAYS = 5000
 PAUSE_BETWEEN_CHUNKS = 5.2
 MIN_SPLIT_DAYS = 90
+RATE_LIMIT_COOLDOWN = 45.0
+RETRY_BACKOFF_MAX = 120.0
 BACKFILL_TAG = "gdelt_timeline_backfill_v1"
 
 # 查询尽量短，避免语法复杂导致接口波动。
@@ -63,6 +65,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--chunk-days", type=int, default=CHUNK_DAYS, help=f"GDELT 分段天数（默认 {CHUNK_DAYS}）")
     p.add_argument("--request-timeout", type=int, default=REQUEST_TIMEOUT, help=f"单次请求超时秒数（默认 {REQUEST_TIMEOUT}）")
     p.add_argument("--request-retries", type=int, default=REQUEST_RETRIES, help=f"单段重试次数（默认 {REQUEST_RETRIES}）")
+    p.add_argument(
+        "--rate-limit-cooldown",
+        type=float,
+        default=RATE_LIMIT_COOLDOWN,
+        help=f"遇到 429 时的最小冷却秒数（默认 {RATE_LIMIT_COOLDOWN}）",
+    )
+    p.add_argument(
+        "--retry-backoff-max",
+        type=float,
+        default=RETRY_BACKOFF_MAX,
+        help=f"重试退避最大秒数（默认 {RETRY_BACKOFF_MAX}）",
+    )
     p.add_argument("--pause-between-chunks", type=float, default=PAUSE_BETWEEN_CHUNKS, help="分段请求间隔秒数")
     p.add_argument(
         "--min-split-days",
@@ -108,6 +122,19 @@ def split_date_range(start: date, end: date) -> tuple[tuple[date, date], tuple[d
     return (start, left_end), (right_start, end)
 
 
+def _compute_retry_sleep_seconds(
+    attempt: int,
+    is_429: bool,
+    rate_limit_cooldown: float,
+    retry_backoff_max: float,
+) -> float:
+    base = 1.2 * (2 ** max(0, attempt - 1))
+    sleep_s = min(float(retry_backoff_max), float(base))
+    if is_429:
+        sleep_s = max(float(rate_limit_cooldown), sleep_s)
+    return max(0.0, sleep_s)
+
+
 def _request_timeline_payload(
     query: str,
     start: date,
@@ -115,7 +142,10 @@ def _request_timeline_payload(
     mode: str,
     request_timeout: int,
     request_retries: int,
+    rate_limit_cooldown: float,
+    retry_backoff_max: float,
     use_env_proxy: bool,
+    verbose_chunks: bool,
 ) -> tuple[dict | None, str]:
     params = {
         "query": query,
@@ -125,7 +155,7 @@ def _request_timeline_payload(
         "enddatetime": _to_gdelt_dt(end, end_of_day=True),
     }
     last_err = ""
-    connect_timeout = max(2, min(8, int(request_timeout)))
+    connect_timeout = max(5, min(20, int(request_timeout)))
     read_timeout = max(5, int(request_timeout))
     for attempt in range(1, max(1, request_retries) + 1):
         try:
@@ -143,7 +173,20 @@ def _request_timeline_payload(
             return payload, ""
         except Exception as e:
             last_err = f"attempt={attempt}: {e}"
-            sleep_s = min(20.0, 1.2 * (2 ** (attempt - 1)))
+            is_429 = isinstance(e, requests.HTTPError) and getattr(getattr(e, "response", None), "status_code", None) == 429
+            sleep_s = _compute_retry_sleep_seconds(
+                attempt=attempt,
+                is_429=is_429,
+                rate_limit_cooldown=rate_limit_cooldown,
+                retry_backoff_max=retry_backoff_max,
+            )
+            if verbose_chunks:
+                err_label = "rate_limited_429" if is_429 else "request_error"
+                print(
+                    f"[backfill] retry {start.isoformat()} -> {end.isoformat()} mode={mode} "
+                    f"attempt={attempt}/{max(1, request_retries)} sleep={sleep_s:.1f}s type={err_label}",
+                    flush=True,
+                )
             time.sleep(sleep_s)
     return None, last_err or "unknown_error"
 
@@ -192,6 +235,8 @@ def _fetch_chunk_with_split(
     end: date,
     request_timeout: int,
     request_retries: int,
+    rate_limit_cooldown: float,
+    retry_backoff_max: float,
     pause_between_chunks: float,
     min_split_days: int,
     use_env_proxy: bool,
@@ -207,7 +252,10 @@ def _fetch_chunk_with_split(
             mode=mode,
             request_timeout=request_timeout,
             request_retries=request_retries,
+            rate_limit_cooldown=rate_limit_cooldown,
+            retry_backoff_max=retry_backoff_max,
             use_env_proxy=use_env_proxy,
+            verbose_chunks=verbose_chunks,
         )
         if payload is not None:
             return _parse_timeline_payload(payload), []
@@ -224,6 +272,8 @@ def _fetch_chunk_with_split(
             end=l_end,
             request_timeout=request_timeout,
             request_retries=request_retries,
+            rate_limit_cooldown=rate_limit_cooldown,
+            retry_backoff_max=retry_backoff_max,
             pause_between_chunks=pause_between_chunks,
             min_split_days=min_split_days,
             use_env_proxy=use_env_proxy,
@@ -236,6 +286,8 @@ def _fetch_chunk_with_split(
             end=r_end,
             request_timeout=request_timeout,
             request_retries=request_retries,
+            rate_limit_cooldown=rate_limit_cooldown,
+            retry_backoff_max=retry_backoff_max,
             pause_between_chunks=pause_between_chunks,
             min_split_days=min_split_days,
             use_env_proxy=use_env_proxy,
@@ -264,6 +316,8 @@ def fetch_timeline_counts(
     chunk_days: int,
     request_timeout: int,
     request_retries: int,
+    rate_limit_cooldown: float,
+    retry_backoff_max: float,
     pause_between_chunks: float,
     min_split_days: int,
     use_env_proxy: bool,
@@ -282,6 +336,8 @@ def fetch_timeline_counts(
             end=chunk_end,
             request_timeout=request_timeout,
             request_retries=request_retries,
+            rate_limit_cooldown=rate_limit_cooldown,
+            retry_backoff_max=retry_backoff_max,
             pause_between_chunks=pause_between_chunks,
             min_split_days=min_split_days,
             use_env_proxy=use_env_proxy,
@@ -405,6 +461,8 @@ def main() -> None:
             chunk_days=args.chunk_days,
             request_timeout=args.request_timeout,
             request_retries=args.request_retries,
+            rate_limit_cooldown=args.rate_limit_cooldown,
+            retry_backoff_max=args.retry_backoff_max,
             pause_between_chunks=args.pause_between_chunks,
             min_split_days=args.min_split_days,
             use_env_proxy=args.use_env_proxy,

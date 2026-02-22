@@ -529,6 +529,22 @@ class TestStrictLogic(unittest.TestCase):
         )
         self.assertEqual(out, {"1990-01-02", "1990-01-03", "1990-01-06"})
 
+    def test_historical_backfill_retry_sleep_seconds(self):
+        s1 = historical_backfill._compute_retry_sleep_seconds(
+            attempt=1,
+            is_429=False,
+            rate_limit_cooldown=60.0,
+            retry_backoff_max=180.0,
+        )
+        self.assertAlmostEqual(s1, 1.2, places=5)
+        s2 = historical_backfill._compute_retry_sleep_seconds(
+            attempt=1,
+            is_429=True,
+            rate_limit_cooldown=60.0,
+            retry_backoff_max=180.0,
+        )
+        self.assertAlmostEqual(s2, 60.0, places=5)
+
 
 if __name__ == "__main__":
     unittest.main()
