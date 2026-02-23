@@ -26,6 +26,7 @@ from typing import Dict, List, Tuple
 
 from utils import (  # type: ignore[import]
     compute_shock_threshold,
+    load_shock_catalog_dates,
     make_rng,
     max_missing_streak as _max_missing_streak,
     parse_date,
@@ -135,6 +136,7 @@ class PanelStats:
     best_positive_corr: float
     lag0_corr: float
     shock_source: str = "news_volume_75pct_fallback"
+    shock_catalog_key: str = ""
 
 
 @dataclass
@@ -501,26 +503,6 @@ def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
         return []
 
 
-def _load_shock_catalog_dates(catalog_path: Path | None) -> List[date]:
-    if catalog_path is None or not catalog_path.exists():  # type: ignore
-        return []
-    try:
-        with catalog_path.open("r", encoding="utf-8") as f:  # type: ignore
-            payload = json.load(f)  # type: ignore
-        ds = payload.get("shock_dates", []) if isinstance(payload, dict) else []
-        out = []
-        for d in ds:  # type: ignore
-            if not isinstance(d, str):
-                continue
-            try:
-                out.append(parse_date(d))  # type: ignore
-            except Exception:
-                continue
-        return sorted(set(out))  # type: ignore
-    except Exception:
-        return []
-
-
 def analyze_panel(  # type: ignore
     panel_path: Path,
     prefer_policy: str,
@@ -530,6 +512,7 @@ def analyze_panel(  # type: ignore
     permutations: int = PERMUTATIONS,
     events_v2_path: Path | None = None,
     shock_catalog_path: Path | None = None,
+    shock_catalog_key: str = "shock_dates",
 ) -> PanelStats:
     panel = load_panel(panel_path)  # type: ignore
     policy, rows = _select_panel_rows(panel, prefer_policy)  # type: ignore
@@ -555,6 +538,7 @@ def analyze_panel(  # type: ignore
             best_positive_corr=0.0,
             lag0_corr=0.0,
             shock_source="none",
+            shock_catalog_key="",
         )
 
     by_date = {}
@@ -616,13 +600,14 @@ def analyze_panel(  # type: ignore
             best_positive_corr=0.0,
             lag0_corr=0.0,
             shock_source="none",
+            shock_catalog_key="",
         )
 
     # 双轨冲击日机制：
     # 主轨：events_v2 真实危机日期（语义正确，但数量少）
     # 辅轨：高新闻量日（75百分位，数量多但语义为"高新闻量日"而非"政治危机日"）
     # 优先使用主轨；若主轨在面板覆盖范围内的日期 < min_shocks，则回退辅轨并标注
-    catalog_dates = _load_shock_catalog_dates(shock_catalog_path)
+    catalog_dates = load_shock_catalog_dates(shock_catalog_path, key=shock_catalog_key)
     if catalog_dates:
         primary_dates = catalog_dates
         primary_source_name = "shock_catalog_dates"
@@ -685,6 +670,7 @@ def analyze_panel(  # type: ignore
             best_positive_corr=0.0,
             lag0_corr=0.0,
             shock_source=shock_source,
+            shock_catalog_key=(shock_catalog_key if shock_source == "shock_catalog_dates" else ""),
         )
 
     ufo_nonzero = [v for v in ufo_series.values() if v > 0]  # type: ignore
@@ -769,6 +755,7 @@ def analyze_panel(  # type: ignore
         best_positive_corr=float(best_positive_corr),
         lag0_corr=lag0_corr,
         shock_source=shock_source,
+        shock_catalog_key=(shock_catalog_key if shock_source == "shock_catalog_dates" else ""),
     )
 
 
@@ -859,11 +846,16 @@ def run_strict_approval(
     # 当使用 events_v2 主轨时，冲击日门槛降为 EV2_MIN_DATES
     effective_min_shocks = EV2_MIN_DATES if panel_stats.shock_source in ("events_v2_crisis_dates", "shock_catalog_dates") else min_shocks
     ev2_shocks_note = " (语义主轨，门槛降为语义正确优先)" if panel_stats.shock_source in ("events_v2_crisis_dates", "shock_catalog_dates") else ""
+    catalog_key_note = (
+        f", shock_catalog_key={panel_stats.shock_catalog_key}"
+        if panel_stats.shock_source == "shock_catalog_dates" and panel_stats.shock_catalog_key
+        else ""
+    )
     gates.append(
         ApprovalGate(
             name=f"panel_shocks>={int(effective_min_shocks)}",
             passed=panel_stats.n_shocks >= effective_min_shocks,
-            detail=f"shocks={panel_stats.n_shocks}, shock_source={panel_stats.shock_source}{ev2_shocks_note}",
+            detail=f"shocks={panel_stats.n_shocks}, shock_source={panel_stats.shock_source}{catalog_key_note}{ev2_shocks_note}",
         )
     )
 
@@ -1017,6 +1009,7 @@ def write_causal_report(
             "reason": panel_stats.reason,
             "control_metric": panel_stats.control_metric,
             "shock_source": panel_stats.shock_source,
+            "shock_catalog_key": panel_stats.shock_catalog_key,
             "best_lag": panel_stats.best_lag,
             "best_corr": panel_stats.best_corr,
             "best_positive_lag": panel_stats.best_positive_lag,
@@ -1085,6 +1078,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="可选冲击日目录（json，含 shock_dates[]）；为空则仅使用 events_v2 主轨",
     )
+    parser.add_argument(
+        "--shock-catalog-key",
+        default="shock_dates",
+        help="冲击目录字段名（默认 shock_dates；可切到 shock_dates_nonoverlap_30d 等）",
+    )
     return parser.parse_args()
 
 
@@ -1125,6 +1123,7 @@ def main() -> None:
         permutations=permutations,
         events_v2_path=EVENTS_FILE,
         shock_catalog_path=shock_catalog_path,
+        shock_catalog_key=str(args.shock_catalog_key or "shock_dates"),  # type: ignore
     )
     verdict, notes = summarize_causal_verdict(events_stats, scraped_stats, panel_stats)
     approval = run_strict_approval(

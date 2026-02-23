@@ -23,6 +23,7 @@ from typing import Dict, List
 
 from utils import (  # type: ignore[import]
     compute_shock_threshold,
+    load_shock_catalog_dates,
     make_rng,
     min_distance_to_shocks,
     parse_date,
@@ -86,34 +87,15 @@ def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
         return []
 
 
-def _load_shock_catalog_dates(catalog_path: Path | None) -> List[date]:
-    if catalog_path is None or not catalog_path.exists():  # type: ignore
-        return []
-    try:
-        with catalog_path.open("r", encoding="utf-8") as f:  # type: ignore
-            payload = json.load(f)  # type: ignore
-        ds = payload.get("shock_dates", []) if isinstance(payload, dict) else []
-        out = []
-        for d in ds:  # type: ignore
-            if not isinstance(d, str):
-                continue
-            try:
-                out.append(parse_date(d))  # type: ignore
-            except Exception:
-                continue
-        return sorted(set(out))  # type: ignore
-    except Exception:
-        return []
-
-
 def select_shock_days(
     crisis_series: Dict[date, float],  # type: ignore
     start: date,
     end: date,
     events_path: Path = EVENTS_FILE,
     shock_catalog_path: Path | None = None,
+    shock_catalog_key: str = "shock_dates",
 ) -> tuple[List[date], float | None, str]:
-    catalog_dates = _load_shock_catalog_dates(shock_catalog_path)
+    catalog_dates = load_shock_catalog_dates(shock_catalog_path, key=shock_catalog_key)
     if catalog_dates:
         base_dates = catalog_dates
         base_source_name = "shock_catalog_dates"
@@ -263,6 +245,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="可选冲击日目录（json，含 shock_dates[]）；为空则仅使用 events_v2",
     )
+    p.add_argument(
+        "--shock-catalog-key",
+        default="shock_dates",
+        help="冲击目录字段名（默认 shock_dates；可切到 shock_dates_nonoverlap_30d 等）",
+    )
     return p.parse_args()
 
 
@@ -278,6 +265,7 @@ def main() -> None:
         "model": "window_mean_diff_permutation_test",
         "interval_note": "placebo_null_ci95 is a placebo/null reference band, not an estimator confidence interval",
         "policy": args.policy,
+        "shock_catalog_key": (str(args.shock_catalog_key or "shock_dates") if str(args.shock_catalog_file or "").strip() else ""),
         "observed_days": len(rows),
         "status": "pending",
         "reason": "",
@@ -314,6 +302,7 @@ def main() -> None:
             end,
             events_path=EVENTS_FILE,
             shock_catalog_path=shock_catalog_path,
+            shock_catalog_key=str(args.shock_catalog_key or "shock_dates"),  # type: ignore
         )
         shock_set = set(shocks)
         placebo_pool = [

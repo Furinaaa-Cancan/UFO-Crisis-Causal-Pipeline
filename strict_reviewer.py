@@ -840,6 +840,8 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
             "panel_progress_status": progress.get("status", "unknown"),  # type: ignore
             "panel_observed_days": panel_observed_days,
             "panel_shock_days": panel_shock_days,
+            "panel_shock_source": panel.get("shock_source", "unknown"),  # type: ignore
+            "panel_shock_catalog_key": panel.get("shock_catalog_key", ""),  # type: ignore
             "panel_observed_ratio": round(observed_ratio, 6),  # type: ignore
             "panel_max_missing_streak": max_missing_streak,
             "panel_progress_observed_days": progress_observed_days,

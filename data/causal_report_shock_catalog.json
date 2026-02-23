@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-02-23T01:40:42.293726+00:00",
+  "generated_at": "2026-02-23T01:54:52.906703+00:00",
   "verdict": "仅发现相关性或弱信号，因果证据不足",
   "approval": {
     "status": "REJECTED",
@@ -19,7 +19,7 @@
       {
         "name": "panel_shocks>=5",
         "passed": true,
-        "detail": "shocks=25, shock_source=shock_catalog_dates (语义主轨，门槛降为语义正确优先)"
+        "detail": "shocks=23, shock_source=shock_catalog_dates, shock_catalog_key=shock_dates_nonoverlap_30d (语义主轨，门槛降为语义正确优先)"
       },
       {
         "name": "panel_observed_ratio>=0.85",
@@ -75,12 +75,13 @@
     "missing_days": 530,
     "observed_ratio": 0.9598545674897743,
     "max_missing_streak": 21,
-    "n_shocks": 25,
+    "n_shocks": 23,
     "shock_threshold": 3443.25,
     "sufficient": true,
     "reason": "样本充分",
     "control_metric": "control_density_accepted",
     "shock_source": "shock_catalog_dates",
+    "shock_catalog_key": "shock_dates_nonoverlap_30d",
     "best_lag": 0,
     "best_corr": 0.5908903297691361,
     "best_positive_lag": 1,
@@ -88,44 +89,44 @@
     "lag0_corr": 0.5908903297691361,
     "window_results": {
       "3": {
-        "obs_effect_adjusted": -2.8936378055377565,
-        "obs_effect_raw": -39.32,
+        "obs_effect_adjusted": -3.212393671471844,
+        "obs_effect_raw": -41.26086956521739,
         "reverse_effect_raw": -391.03133903133903,
-        "placebo_control_effect": -5.1371772,
-        "p_value_adjusted": 0.8666,
-        "p_value_raw": 0.95495
+        "placebo_control_effect": -5.281440260869565,
+        "p_value_adjusted": 0.88275,
+        "p_value_raw": 0.95645
       },
       "7": {
-        "obs_effect_adjusted": -25.26948594954499,
-        "obs_effect_raw": -186.44,
+        "obs_effect_adjusted": -29.53825652827733,
+        "obs_effect_raw": -212.82608695652175,
         "reverse_effect_raw": -3.5584045584045585,
-        "placebo_control_effect": -4.978100559999998,
-        "p_value_adjusted": 0.9974,
-        "p_value_raw": 0.99835
+        "placebo_control_effect": -5.782103782608694,
+        "p_value_adjusted": 0.9987,
+        "p_value_raw": 0.99905
       },
       "10": {
-        "obs_effect_adjusted": -29.466353086923085,
-        "obs_effect_raw": -225.24,
+        "obs_effect_adjusted": -35.42251287289581,
+        "obs_effect_raw": -263.5652173913044,
         "reverse_effect_raw": -360.5014245014245,
-        "placebo_control_effect": -0.966859839999995,
-        "p_value_adjusted": 0.99665,
-        "p_value_raw": 0.9981
+        "placebo_control_effect": -2.1338303478260814,
+        "p_value_adjusted": 0.99835,
+        "p_value_raw": 0.99915
       },
       "14": {
-        "obs_effect_adjusted": -42.30074164867812,
-        "obs_effect_raw": -300.16,
+        "obs_effect_adjusted": -52.369531821639356,
+        "obs_effect_raw": -359.95652173913044,
         "reverse_effect_raw": 529.6951566951567,
-        "placebo_control_effect": 0.3140722800000077,
-        "p_value_adjusted": 0.9988,
-        "p_value_raw": 0.99875
+        "placebo_control_effect": -0.4480679999999909,
+        "p_value_adjusted": 0.99965,
+        "p_value_raw": 0.9995
       },
       "30": {
-        "obs_effect_adjusted": -17.644577186793956,
-        "obs_effect_raw": -88.44,
+        "obs_effect_adjusted": -32.007298881019985,
+        "obs_effect_raw": -165.43478260869566,
         "reverse_effect_raw": 2499.534188034188,
-        "placebo_control_effect": 24.313250360000012,
-        "p_value_adjusted": 0.8695,
-        "p_value_raw": 0.7986
+        "placebo_control_effect": 26.497570913043493,
+        "p_value_adjusted": 0.9656,
+        "p_value_raw": 0.9164
       }
     }
   },

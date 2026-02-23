@@ -1,10 +1,11 @@
 {
-  "generated_at": "2026-02-23T01:40:52.735926+00:00",
+  "generated_at": "2026-02-23T01:55:02.545520+00:00",
   "model": "causal_ml_orthogonal_forest",
   "policy": "strict-balanced",
+  "shock_catalog_key": "shock_dates_nonoverlap_30d",
   "observed_days": 12672,
   "status": "pending",
-  "reason": "treated_support_too_sparse（treated=15/11770, ratio=0.001274, need_samples>=12, need_ratio>=0.002000）",
+  "reason": "treated_support_too_sparse（treated=14/11770, ratio=0.001189, need_samples>=12, need_ratio>=0.002000）",
   "dependencies": {
     "sklearn_ready": true,
     "sklearn_error": ""
@@ -14,9 +15,9 @@
     "n_samples_for_ml": 11770,
     "shock_threshold": null,
     "shock_source": "shock_catalog_dates",
-    "shock_days": 15,
-    "shock_days_defined": 25,
-    "treated_ratio": 0.001274,
+    "shock_days": 14,
+    "shock_days_defined": 23,
+    "treated_ratio": 0.001189,
     "min_treated_samples_required": 12,
     "min_treated_ratio_required": 0.002,
     "treated_support_ok": false,

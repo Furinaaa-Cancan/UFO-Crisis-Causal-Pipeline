@@ -1,51 +1,52 @@
 {
-  "generated_at": "2026-02-23T01:40:43.231109+00:00",
+  "generated_at": "2026-02-23T01:54:53.762390+00:00",
   "model": "window_mean_diff_permutation_test",
   "interval_note": "placebo_null_ci95 is a placebo/null reference band, not an estimator confidence interval",
   "policy": "strict-balanced",
+  "shock_catalog_key": "shock_dates_nonoverlap_30d",
   "observed_days": 12672,
   "status": "ok",
   "reason": "did_estimated",
   "shock_threshold": null,
   "shock_source": "shock_catalog_dates",
-  "shock_days": 25,
-  "shock_days_used": 25,
+  "shock_days": 23,
+  "shock_days_used": 23,
   "shock_sampling": "full",
   "windows": {
     "7": {
       "status": "ok",
       "reason": "estimated",
-      "att": -22.655736,
-      "p_value": 0.99,
+      "att": -25.178452,
+      "p_value": 0.997,
       "placebo_null_ci95": [
-        -13.933442,
-        13.161769
+        -11.022054,
+        12.031086
       ],
-      "n_obs_events": 22,
+      "n_obs_events": 20,
       "n_null": 2000
     },
     "14": {
       "status": "ok",
       "reason": "estimated",
-      "att": -12.051436,
-      "p_value": 0.987,
+      "att": -14.458082,
+      "p_value": 0.991,
       "placebo_null_ci95": [
-        -8.578964,
-        11.161101
+        -10.09248,
+        11.657409
       ],
-      "n_obs_events": 25,
+      "n_obs_events": 23,
       "n_null": 2000
     },
     "30": {
       "status": "ok",
       "reason": "estimated",
-      "att": -2.774033,
-      "p_value": 0.8385,
+      "att": -4.864891,
+      "p_value": 0.907,
       "placebo_null_ci95": [
-        -7.550703,
-        7.214552
+        -8.24113,
+        8.507945
       ],
-      "n_obs_events": 25,
+      "n_obs_events": 23,
       "n_null": 2000
     }
   },
@@ -53,49 +54,49 @@
     "entertainment": {
       "status": "ok",
       "reason": "estimated",
-      "att": 0.005714,
-      "p_value": 0.062,
+      "att": 0.006211,
+      "p_value": 0.059,
       "placebo_null_ci95": [
-        -0.005714,
-        0.005714
+        -0.006211,
+        0.006211
       ],
-      "n_obs_events": 25,
+      "n_obs_events": 23,
       "n_null": 2000
     },
     "sports": {
       "status": "ok",
       "reason": "estimated",
       "att": 0.0,
-      "p_value": 0.9275,
+      "p_value": 0.9395,
       "placebo_null_ci95": [
-        -0.011429,
-        0.011429
+        -0.012422,
+        0.012578
       ],
-      "n_obs_events": 25,
+      "n_obs_events": 23,
       "n_null": 2000
     },
     "technology": {
       "status": "ok",
       "reason": "estimated",
-      "att": -0.011429,
-      "p_value": 0.974,
+      "att": -0.012422,
+      "p_value": 0.979,
       "placebo_null_ci95": [
-        -0.017143,
-        0.028619
+        -0.012422,
+        0.025
       ],
-      "n_obs_events": 25,
+      "n_obs_events": 23,
       "n_null": 2000
     },
     "weather": {
       "status": "ok",
       "reason": "estimated",
       "att": 0.0,
-      "p_value": 0.959,
+      "p_value": 0.9575,
       "placebo_null_ci95": [
-        -0.011429,
-        0.011429
+        -0.012422,
+        0.012422
       ],
-      "n_obs_events": 25,
+      "n_obs_events": 23,
       "n_null": 2000
     }
   },

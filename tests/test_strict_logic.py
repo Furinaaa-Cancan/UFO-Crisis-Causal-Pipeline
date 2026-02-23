@@ -16,6 +16,8 @@ import historical_backfill
 import replay_backfill_failures
 import scraper
 import strict_reviewer
+import shock_catalog_builder
+import utils
 
 
 class TestStrictLogic(unittest.TestCase):
@@ -350,6 +352,35 @@ class TestStrictLogic(unittest.TestCase):
                 "https://c.example/rss",
             ],
         )
+
+    def test_load_shock_catalog_dates_supports_custom_key_with_fallback(self):
+        payload = {
+            "shock_dates": ["2020-01-01", "2020-01-10"],
+            "shock_dates_nonoverlap_30d": ["2020-01-01"],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            fp = Path(tmp) / "catalog.json"
+            fp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+            custom = utils.load_shock_catalog_dates(fp, key="shock_dates_nonoverlap_30d")
+            fallback = utils.load_shock_catalog_dates(fp, key="missing_key")
+
+        self.assertEqual([d.isoformat() for d in custom], ["2020-01-01"])
+        self.assertEqual([d.isoformat() for d in fallback], ["2020-01-01", "2020-01-10"])
+
+    def test_shock_catalog_nonoverlap_projection_reduces_close_duplicates(self):
+        manual = ["2020-01-01", "2020-01-20"]
+        auto = [
+            {"date": "2020-01-05", "crisis_count": 1000.0},
+            {"date": "2020-03-01", "crisis_count": 900.0},
+        ]
+        kept, dropped = shock_catalog_builder.build_nonoverlap_catalog(
+            manual_dates=manual,
+            auto_candidates=auto,
+            min_gap_days=30,
+        )
+        self.assertIn("2020-03-01", kept)
+        self.assertGreaterEqual(len(dropped), 1)
 
     def test_collect_paged_source_urls_builds_expected_range(self):
         src = {

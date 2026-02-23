@@ -332,6 +332,7 @@ python strict_reviewer.py \
 > 注意：`model_did.py` / `model_event_study.py` / `model_synth_control.py` / `model_causal_ml.py` 默认采用 `events_v2_crisis_dates` 作为冲击日主轨（>=5 日时）；当显式传入 `--shock-catalog-file` 时会切换到 `shock_catalog_dates` 主轨。若主轨不足则回退新闻量阈值，并在报告写出 `shock_source` 审计字段。
 > 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，
 > 以避免触发国家 RSS 联网抓取，保证离线/复现语义一致。
+> 注意：当使用 `--skip-causal` 时，`panel_pipeline.py` 会自动刷新一次 `causal_report`（`--no-update-panel`）以保持严格评审口径一致；若同时传入 `--shock-catalog-file/--shock-catalog-key`，会按该冲击口径刷新。
 
 ### 8. 冲击目录扩展功效分析（可选）
 新增 `shock_catalog_builder.py`，用于在不改默认主结论口径的前提下，构建“扩展冲击日目录”：
@@ -342,21 +343,28 @@ python strict_reviewer.py \
 构建命令：
 ```bash
 # 推荐：strict-balanced 面板上构建扩展目录
-python shock_catalog_builder.py --policy strict-balanced --peak-percentile 98.5 --min-gap-days 21
+python shock_catalog_builder.py --policy strict-balanced --peak-percentile 98.5 --min-gap-days 21 --nonoverlap-gap-days 30
 ```
+输出里会包含：
+- `shock_dates`（全量扩展冲击）
+- `shock_dates_nonoverlap_30d`（30天最小间隔的非重叠冲击）
+- `support_projection`（按 Causal ML 口径投影 treated 数与 treated_ratio）
 
 使用方式（仅在你显式传参时生效）：
 ```bash
-# 单脚本：把冲击主轨切到 crisis_shock_catalog.json
-python causal_analyzer.py --shock-catalog-file data/crisis_shock_catalog.json
-python model_did.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json
-python model_event_study.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json
-python model_synth_control.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json
-python model_causal_ml.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json
+# 单脚本：使用默认键 shock_dates
+python causal_analyzer.py --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates
+
+# 单脚本：切换到非重叠键（更严格）
+python model_did.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_30d
+python model_event_study.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_30d
+python model_synth_control.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_30d
+python model_causal_ml.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_30d
 
 # 统一管道：离线复现实验 + 扩展冲击目录
 python research_unified_pipeline.py --skip-scrape --skip-causal --only-policy strict-balanced \
-  --shock-catalog-file data/crisis_shock_catalog.json
+  --shock-catalog-file data/crisis_shock_catalog.json \
+  --shock-catalog-key shock_dates_nonoverlap_30d
 ```
 
 说明：

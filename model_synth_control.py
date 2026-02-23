@@ -23,6 +23,7 @@ from typing import Dict, List
 
 from utils import (  # type: ignore[import]
     compute_shock_threshold,
+    load_shock_catalog_dates,
     make_rng,
     parse_date,
     read_panel_rows as _read_panel_rows,
@@ -76,31 +77,12 @@ def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
         return []
 
 
-def _load_shock_catalog_dates(catalog_path: Path | None) -> List[date]:
-    if catalog_path is None or not catalog_path.exists():  # type: ignore
-        return []
-    try:
-        with catalog_path.open("r", encoding="utf-8") as f:  # type: ignore
-            payload = json.load(f)  # type: ignore
-        ds = payload.get("shock_dates", []) if isinstance(payload, dict) else []
-        out = []
-        for d in ds:  # type: ignore
-            if not isinstance(d, str):
-                continue
-            try:
-                out.append(parse_date(d))  # type: ignore
-            except Exception:
-                continue
-        return sorted(set(out))  # type: ignore
-    except Exception:
-        return []
-
-
 def load_us_shock_days(
     policy: str = "strict-balanced",
     start: date | None = None,
     end: date | None = None,
     shock_catalog_path: Path | None = None,
+    shock_catalog_key: str = "shock_dates",
 ) -> tuple[List[date], float | None, str]:
     rows = _read_panel_rows(PANEL_FILE, policy)
     if not rows:
@@ -111,7 +93,7 @@ def load_us_shock_days(
     if end is None:
         end = max(series.keys())  # type: ignore
 
-    catalog_dates = _load_shock_catalog_dates(shock_catalog_path)
+    catalog_dates = load_shock_catalog_dates(shock_catalog_path, key=shock_catalog_key)
     if catalog_dates:
         base_dates = catalog_dates
         base_source_name = "shock_catalog_dates"
@@ -178,6 +160,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="可选冲击日目录（json，含 shock_dates[]）；为空则仅使用 events_v2",
     )
+    p.add_argument(
+        "--shock-catalog-key",
+        default="shock_dates",
+        help="冲击目录字段名（默认 shock_dates；可切到 shock_dates_nonoverlap_30d 等）",
+    )
     return p.parse_args()
 
 
@@ -192,6 +179,7 @@ def main() -> None:
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
         "model": "synthetic_control_simplified",
         "policy": args.policy,
+        "shock_catalog_key": (str(args.shock_catalog_key or "shock_dates") if str(args.shock_catalog_file or "").strip() else ""),
         "status": "blocked",
         "reason": "",
         "n_rows": len(rows),
@@ -248,6 +236,7 @@ def main() -> None:
                     start=us_dates[0],
                     end=us_dates[-1],
                     shock_catalog_path=shock_catalog_path,
+                    shock_catalog_key=str(args.shock_catalog_key or "shock_dates"),  # type: ignore
                 )
                 out["metrics"]["shock_days"] = len(shocks)  # type: ignore
                 out["metrics"]["shock_threshold"] = round(shock_thr, 6) if isinstance(shock_thr, (int, float)) else None  # type: ignore

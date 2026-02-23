@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-02-23T01:40:53.054919+00:00",
+  "generated_at": "2026-02-23T01:55:02.857251+00:00",
   "decision": {
     "verdict": "仅发现相关性或弱信号，因果证据不足",
     "approval_status": "REJECTED",
@@ -163,7 +163,9 @@
     "panel_status": "REJECTED",
     "panel_progress_status": "ready_for_strict_approval",
     "panel_observed_days": 12672,
-    "panel_shock_days": 25,
+    "panel_shock_days": 23,
+    "panel_shock_source": "shock_catalog_dates",
+    "panel_shock_catalog_key": "shock_dates_nonoverlap_30d",
     "panel_observed_ratio": 0.959855,
     "panel_max_missing_streak": 21,
     "panel_progress_observed_days": 12672,
@@ -240,7 +242,7 @@
     "dual_stable_passed": true,
     "policy_consistency_passed": true,
     "mechanism_gate_passed": true,
-    "reproducibility_passed": true,
+    "reproducibility_passed": false,
     "gate_map": {
       "panel_sufficient": true,
       "panel_observed_days>=180": true,
@@ -270,19 +272,19 @@
       "synth_passed": true,
       "causal_ml_passed": false,
       "panel_observed_days": 12672,
-      "panel_shock_days": 25,
+      "panel_shock_days": 23,
       "dual_status": "stable",
       "inference_level": "TEMPORAL_ASSOCIATION_ONLY"
     },
     "previous_signature_exists": true,
-    "previous_generated_at": "2026-02-23T01:39:26.622138+00:00",
-    "cross_day_repeat": true,
+    "previous_generated_at": "2026-02-23T01:53:46.730463+00:00",
+    "cross_day_repeat": false,
     "same_day_repeat": true,
-    "same_day_prev_repro_passed": true,
-    "repro_signature_matches": 2,
-    "latest_signature_match_generated_at": "2026-02-23T01:29:55.875102+00:00",
-    "history_runs_count_before_append": 25,
-    "history_runs_count": 26
+    "same_day_prev_repro_passed": false,
+    "repro_signature_matches": 1,
+    "latest_signature_match_generated_at": "2026-02-23T01:53:40.891233+00:00",
+    "history_runs_count_before_append": 29,
+    "history_runs_count": 30
   },
   "research_level": "L1",
   "next_actions": [

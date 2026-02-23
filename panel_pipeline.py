@@ -30,6 +30,7 @@ from utils import (  # type: ignore[import]
 
 BASE_DIR = Path(__file__).resolve().parent  # type: ignore
 DATA_DIR = BASE_DIR / "data"
+SCRAPED_FILE = DATA_DIR / "scraped_news.json"
 PANEL_FILE = DATA_DIR / "causal_panel.json"  # type: ignore
 PROGRESS_FILE = DATA_DIR / "panel_progress.json"
 DUAL_REVIEW_FILE = DATA_DIR / "strict_dual_review.json"
@@ -342,6 +343,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="可选冲击日目录（传递给 causal_analyzer）；为空则仅使用 events_v2 主轨",
     )
+    parser.add_argument(
+        "--shock-catalog-key",
+        default="shock_dates",
+        help="冲击目录字段名（默认 shock_dates；可切到 shock_dates_nonoverlap_30d 等）",
+    )
     return parser.parse_args()
 
 
@@ -367,7 +373,31 @@ def main() -> None:
             cmd.append("--fail-on-reject")
         if str(args.shock_catalog_file or "").strip():  # type: ignore
             cmd.extend(["--shock-catalog-file", str(args.shock_catalog_file)])  # type: ignore
+            cmd.extend(["--shock-catalog-key", str(args.shock_catalog_key or "shock_dates")])  # type: ignore
         run_cmd(cmd)
+    else:
+        # skip-causal 场景下，刷新一次 causal_report（不写面板），避免后续严格评审读到旧口径。
+        if not SCRAPED_FILE.exists():  # type: ignore
+            print("[warn] --skip-causal：未找到 scraped_news.json，跳过 causal_report 刷新。")  # type: ignore
+        else:
+            cmd = [
+                py,
+                "causal_analyzer.py",
+                "--no-update-panel",
+                "--panel-policy",
+                args.policy,  # type: ignore
+                "--min-panel-days",
+                str(args.min_days),  # type: ignore
+                "--min-panel-shocks",
+                str(args.min_shocks),  # type: ignore
+                "--min-panel-observed-ratio",
+                str(args.min_observed_ratio),  # type: ignore
+            ]
+            if str(args.shock_catalog_file or "").strip():  # type: ignore
+                cmd.extend(["--shock-catalog-file", str(args.shock_catalog_file)])  # type: ignore
+                cmd.extend(["--shock-catalog-key", str(args.shock_catalog_key or "shock_dates")])  # type: ignore
+            print("[info] --skip-causal 已开启：将刷新 causal_report（--no-update-panel）以保持口径一致。")  # type: ignore
+            run_cmd(cmd)
 
     rows = load_panel_rows(args.policy)
     report = compute_progress(

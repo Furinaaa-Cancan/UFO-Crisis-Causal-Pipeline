@@ -155,6 +155,45 @@ def min_distance_to_shocks(d: date, shocks: List[date]) -> int:
     return min(abs((d - s).days) for s in shocks)
 
 
+def load_shock_catalog_dates(
+    catalog_path: Path | None,
+    key: str = "shock_dates",
+) -> List[date]:
+    """
+    读取冲击目录日期。
+    - 优先读取指定 key
+    - 若 key 不存在且 key != shock_dates，则回退到 shock_dates
+    """
+    if catalog_path is None or not catalog_path.exists():  # type: ignore
+        return []
+    try:
+        with catalog_path.open("r", encoding="utf-8") as f:  # type: ignore
+            payload = json.load(f)  # type: ignore
+        if not isinstance(payload, dict):
+            return []
+
+        has_key = key in payload
+        ds = payload.get(key, [])
+        if (not has_key) and key != "shock_dates":
+            ds = payload.get("shock_dates", [])
+        elif (not isinstance(ds, list)) and key != "shock_dates":
+            ds = payload.get("shock_dates", [])
+        if not isinstance(ds, list):
+            return []
+
+        out = []
+        for item in ds:  # type: ignore
+            if not isinstance(item, str):
+                continue
+            try:
+                out.append(parse_date(item))  # type: ignore
+            except Exception:
+                continue
+        return sorted(set(out))  # type: ignore
+    except Exception:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # 独立随机实例工厂
 # ---------------------------------------------------------------------------

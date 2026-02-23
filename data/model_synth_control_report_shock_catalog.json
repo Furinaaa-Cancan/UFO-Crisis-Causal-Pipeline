@@ -1,7 +1,8 @@
 {
-  "generated_at": "2026-02-23T01:40:49.946618+00:00",
+  "generated_at": "2026-02-23T01:55:00.079034+00:00",
   "model": "synthetic_control_simplified",
   "policy": "strict-balanced",
+  "shock_catalog_key": "shock_dates_nonoverlap_30d",
   "status": "ok",
   "reason": "synth_estimated_neutral_consistent",
   "n_rows": 52812,
@@ -17,15 +18,15 @@
     "UK": 0.333333
   },
   "metrics": {
-    "shock_days": 25,
+    "shock_days": 23,
     "shock_threshold": null,
     "shock_source": "shock_catalog_dates",
     "att_gap": 0.0,
     "p_value": 1.0,
     "p_value_negative": 1.0,
     "n_common_dates": 13203,
-    "n_pre_dates": 13003,
-    "n_post_dates": 175
+    "n_pre_dates": 13019,
+    "n_post_dates": 161
   },
   "gates": {
     "att_positive": false,

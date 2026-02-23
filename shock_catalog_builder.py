@@ -41,6 +41,24 @@ def parse_args() -> argparse.Namespace:
         default=14,
         help="与人工危机日距离 <= N 天的自动候选将被剔除",
     )
+    p.add_argument(
+        "--nonoverlap-gap-days",
+        type=int,
+        default=30,
+        help="构造非重叠冲击集时的最小间隔（默认 30 天）",
+    )
+    p.add_argument(
+        "--effect-lag-start",
+        type=int,
+        default=1,
+        help="Causal ML 投影：处理后窗口起点（默认 t+1）",
+    )
+    p.add_argument(
+        "--effect-window-days",
+        type=int,
+        default=7,
+        help="Causal ML 投影：处理后窗口终点（默认 t+7）",
+    )
     return p.parse_args()
 
 
@@ -88,6 +106,14 @@ def _near_manual(date_iso: str, manual_dates: List[str], radius_days: int) -> bo
         if abs((d - parse_date(m)).days) <= radius_days:
             return True
     return False
+
+
+def _nearest_kept_distance(date_iso: str, selected: List[str]) -> Tuple[int | None, str | None]:
+    if not selected:
+        return None, None
+    d = parse_date(date_iso)
+    nearest = min(selected, key=lambda x: abs((d - parse_date(x)).days))  # type: ignore
+    return abs((d - parse_date(nearest)).days), nearest
 
 
 def build_auto_candidates(
@@ -139,6 +165,118 @@ def build_auto_candidates(
     return out, float(thr)
 
 
+def build_nonoverlap_catalog(
+    manual_dates: List[str],
+    auto_candidates: List[dict],  # type: ignore
+    min_gap_days: int,
+) -> Tuple[List[str], List[dict]]:
+    """
+    按优先级构建“非重叠冲击集”：
+    - 手工核验（manual）优先于自动候选
+    - 同优先级下按 crisis_count 高分优先
+    """
+    entries = []
+    for d in manual_dates:
+        entries.append(
+            {
+                "date": d,
+                "source": "manual",
+                "priority": 2,
+                "score": 1e18,
+            }
+        )
+    for c in auto_candidates:
+        entries.append(
+            {
+                "date": c.get("date"),
+                "source": "auto",
+                "priority": 1,
+                "score": float(c.get("crisis_count", 0) or 0.0),  # type: ignore
+            }
+        )
+
+    # 高优先 + 高分优先，最后按日期稳定排序
+    entries = [e for e in entries if isinstance(e.get("date"), str)]
+    entries.sort(key=lambda x: (int(x["priority"]), float(x["score"]), str(x["date"])), reverse=True)  # type: ignore
+
+    kept: List[str] = []
+    dropped: List[dict] = []
+    for e in entries:
+        d_iso = str(e["date"])
+        if _too_close(d_iso, kept, min_gap_days):
+            near_days, near_date = _nearest_kept_distance(d_iso, kept)
+            dropped.append(
+                {
+                    "date": d_iso,
+                    "source": e.get("source"),
+                    "score": e.get("score"),
+                    "reason": "too_close_to_selected",
+                    "nearest_selected_date": near_date,
+                    "nearest_selected_days": near_days,
+                    "min_gap_days": int(min_gap_days),
+                }
+            )
+            continue
+        kept.append(d_iso)
+
+    kept = sorted(set(kept))
+    dropped.sort(key=lambda x: x.get("date", ""))  # type: ignore
+    return kept, dropped
+
+
+def project_treated_support(
+    rows: List[dict],  # type: ignore
+    shock_dates: List[str],
+    effect_lag_start: int,
+    effect_window_days: int,
+) -> dict:
+    """
+    近似对齐 model_causal_ml.build_dataset 的可用样本口径，
+    计算给定冲击集在 ML 设计中的 treated 支持度。
+    """
+    lag_start = max(0, int(effect_lag_start))
+    lag_end = max(lag_start, int(effect_window_days))
+    by_date: Dict[object, dict] = {}  # type: ignore
+    for r in rows:
+        d = r.get("date")
+        if not isinstance(d, str):
+            continue
+        try:
+            by_date[parse_date(d)] = r  # type: ignore
+        except Exception:
+            continue
+
+    dates = sorted(by_date.keys())  # type: ignore
+    shock_set = set()
+    for s in shock_dates:
+        try:
+            shock_set.add(parse_date(s))  # type: ignore
+        except Exception:
+            continue
+
+    n_samples = 0
+    treated_samples = 0
+    for d in dates:
+        lag_ok = all((d - timedelta(days=k)) in by_date for k in (1, 2, 3, 7))  # type: ignore
+        if not lag_ok:
+            continue
+        future_days = [d + timedelta(days=k) for k in range(lag_start, lag_end + 1)]  # type: ignore
+        if any(fd not in by_date for fd in future_days):
+            continue
+        n_samples += 1
+        if d in shock_set:
+            treated_samples += 1
+
+    treated_ratio = (treated_samples / float(n_samples)) if n_samples > 0 else 0.0
+    return {
+        "n_samples_for_ml_projection": int(n_samples),
+        "treated_samples_projection": int(treated_samples),
+        "treated_ratio_projection": round(treated_ratio, 6),  # type: ignore
+        "effect_lag_start": int(lag_start),
+        "effect_window_days": int(lag_end),
+    }
+
+
 def main() -> None:
     args = parse_args()
     manual_dates = load_manual_crisis_dates(EVENTS_FILE)
@@ -153,6 +291,25 @@ def main() -> None:
     )
 
     all_dates = sorted(set(manual_dates + [c["date"] for c in auto_candidates]))  # type: ignore
+    nonoverlap_key = f"shock_dates_nonoverlap_{int(args.nonoverlap_gap_days)}d"
+    nonoverlap_dates, nonoverlap_drops = build_nonoverlap_catalog(
+        manual_dates=manual_dates,
+        auto_candidates=auto_candidates,
+        min_gap_days=int(args.nonoverlap_gap_days),
+    )
+    support_projection_main = project_treated_support(
+        rows=rows,
+        shock_dates=all_dates,
+        effect_lag_start=int(args.effect_lag_start),
+        effect_window_days=int(args.effect_window_days),
+    )
+    support_projection_nonoverlap = project_treated_support(
+        rows=rows,
+        shock_dates=nonoverlap_dates,
+        effect_lag_start=int(args.effect_lag_start),
+        effect_window_days=int(args.effect_window_days),
+    )
+
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
         "policy": args.policy,
@@ -165,15 +322,28 @@ def main() -> None:
             "min_gap_days": args.min_gap_days,
             "max_candidates": args.max_candidates,
             "exclude_near_manual_days": args.exclude_near_manual_days,
+            "nonoverlap_gap_days": int(args.nonoverlap_gap_days),
+            "effect_lag_start": int(args.effect_lag_start),
+            "effect_window_days": int(args.effect_window_days),
         },
         "summary": {
             "manual_dates": len(manual_dates),
             "auto_candidates": len(auto_candidates),
             "total_shock_dates": len(all_dates),
+            "total_shock_dates_nonoverlap": len(nonoverlap_dates),
+            "nonoverlap_dropped": len(nonoverlap_drops),
             "auto_candidate_threshold_value": thr,
         },
         "manual_shock_dates": manual_dates,
         "auto_candidates": auto_candidates,
+        "nonoverlap_drops": nonoverlap_drops,
+        "shock_dates_nonoverlap": nonoverlap_dates,
+        nonoverlap_key: nonoverlap_dates,
+        "support_projection": {
+            "shock_dates": support_projection_main,
+            "shock_dates_nonoverlap": support_projection_nonoverlap,
+            nonoverlap_key: support_projection_nonoverlap,
+        },
         "shock_dates": all_dates,
     }
 
@@ -184,6 +354,12 @@ def main() -> None:
     print(f"manual_dates: {len(manual_dates)}")
     print(f"auto_candidates: {len(auto_candidates)}")
     print(f"total_shock_dates: {len(all_dates)}")
+    print(f"{nonoverlap_key}: {len(nonoverlap_dates)}")
+    print(
+        "treated_projection(main/nonoverlap): "
+        f"{support_projection_main['treated_samples_projection']}/"
+        f"{support_projection_nonoverlap['treated_samples_projection']}"
+    )
     print(f"[输出] {OUT_FILE}")
 
 

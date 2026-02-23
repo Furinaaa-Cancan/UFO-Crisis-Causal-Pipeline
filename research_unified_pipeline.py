@@ -52,6 +52,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="可选冲击日目录（传给 panel_pipeline 与模型）；为空则仅使用 events_v2 主轨",
     )
+    p.add_argument(
+        "--shock-catalog-key",
+        default="shock_dates",
+        help="冲击目录字段名（默认 shock_dates；可切到 shock_dates_nonoverlap_30d 等）",
+    )
     return p.parse_args()
 
 
@@ -84,6 +89,7 @@ def main() -> None:
             cmd.append("--skip-causal")
         if str(args.shock_catalog_file or "").strip():  # type: ignore
             cmd.extend(["--shock-catalog-file", str(args.shock_catalog_file)])  # type: ignore
+            cmd.extend(["--shock-catalog-key", str(args.shock_catalog_key or "shock_dates")])  # type: ignore
         code = run_cmd(cmd)
         if code != 0:
             raise SystemExit(code)
@@ -109,6 +115,7 @@ def main() -> None:
             cmd = [py, script, "--policy", model_policy]
             if str(args.shock_catalog_file or "").strip():  # type: ignore
                 cmd.extend(["--shock-catalog-file", str(args.shock_catalog_file)])  # type: ignore
+                cmd.extend(["--shock-catalog-key", str(args.shock_catalog_key or "shock_dates")])  # type: ignore
             code = run_cmd(cmd)
             if code != 0:
                 raise SystemExit(code)
