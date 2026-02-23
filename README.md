@@ -43,7 +43,7 @@
 ├── causal_analyzer.py     # 因果检验器（置换检验+方向性检验+样本充分性诊断）
 ├── panel_pipeline.py      # 日常累计管道（抓取+审批+进度）
 ├── research_unified_pipeline.py # 统一研究总管道（双档+对照构建+严格评审+模型）
-├── shock_catalog_builder.py # 扩展冲击日目录构建器（manual + panel peak）
+├── shock_catalog_builder.py # 扩展冲击日目录构建器（manual + exogenous + panel peak）
 ├── control_panel_builder.py # 对照面板构建器（topic/country 自动更新）
 ├── model_causal_ml.py     # 因果机器学习（DML + 因果森林代理）
 ├── historical_backfill.py # 历史回填（GDELT 日度计数，2017年至今）
@@ -70,6 +70,7 @@
     ├── model_synth_control_report.json # 合成控制简化输出
     ├── model_causal_ml_report.json # 因果机器学习（DML+因果森林代理）输出
     ├── crisis_shock_catalog.json # 扩展冲击日目录（可选功效分析）
+    ├── exogenous_shocks_us.json # 外生冲击清单（功效扩展，不替代主轨）
     ├── research_variable_dictionary.json # 变量字典
     └── control_panels/    # 对照组面板（topic/country + 来源配置）
 ```
@@ -337,29 +338,34 @@ python strict_reviewer.py \
 ### 8. 冲击目录扩展功效分析（可选）
 新增 `shock_catalog_builder.py`，用于在不改默认主结论口径的前提下，构建“扩展冲击日目录”：
 - 保留 `events_v2` 人工核验危机日（manual）
+- 可选合并 `data/exogenous_shocks_us.json` 的外生冲击清单（exogenous）
 - 从 `causal_panel.json` 自动提名局部峰值危机日（auto candidates）
 - 输出 `data/crisis_shock_catalog.json`（可审计字段含阈值、候选来源、日期列表）
 
 构建命令：
 ```bash
-# 推荐：strict-balanced 面板上构建扩展目录
-python shock_catalog_builder.py --policy strict-balanced --peak-percentile 98.5 --min-gap-days 21 --nonoverlap-gap-days 30
+# 推荐：strict-balanced 面板上构建扩展目录 + 30/45/60 非重叠矩阵
+python shock_catalog_builder.py --policy strict-balanced --peak-percentile 98.5 --min-gap-days 21 --nonoverlap-gap-days 30 --nonoverlap-gaps 30,45,60
 ```
 输出里会包含：
 - `shock_dates`（全量扩展冲击）
-- `shock_dates_nonoverlap_30d`（30天最小间隔的非重叠冲击）
+- `shock_dates_nonoverlap_30d` / `shock_dates_nonoverlap_45d` / `shock_dates_nonoverlap_60d`
 - `support_projection`（按 Causal ML 口径投影 treated 数与 treated_ratio）
+- `nonoverlap_matrix`（每档间隔的保留数、剔除数与投影支持度）
 
 使用方式（仅在你显式传参时生效）：
 ```bash
 # 单脚本：使用默认键 shock_dates
 python causal_analyzer.py --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates
 
-# 单脚本：切换到非重叠键（更严格）
+# 单脚本：切换到非重叠键（更严格，可做敏感性矩阵）
 python model_did.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_30d
 python model_event_study.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_30d
 python model_synth_control.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_30d
 python model_causal_ml.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_30d
+
+python model_causal_ml.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_45d
+python model_causal_ml.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_60d
 
 # 统一管道：离线复现实验 + 扩展冲击目录
 python research_unified_pipeline.py --skip-scrape --skip-causal --only-policy strict-balanced \
@@ -370,6 +376,11 @@ python research_unified_pipeline.py --skip-scrape --skip-causal --only-policy st
 说明：
 - 默认不传该参数时，全部脚本仍使用 `events_v2` 主轨，不改变历史基线。
 - 推荐把扩展结果另存为 `*_shock_catalog.json` 进行并排审计，避免覆盖主结论快照。
+- 若你要对比“是否引入外生冲击”的差异，可运行：
+```bash
+python shock_catalog_builder.py --policy strict-balanced --disable-exogenous
+python shock_catalog_builder.py --policy strict-balanced --exogenous-categories finance,geopolitics
+```
 
 ### 9. 对照组面板构建器
 `control_panel_builder.py` 会自动更新：

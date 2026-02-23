@@ -4,7 +4,8 @@
 用途：
 1) 保留 events_v2 的人工核验危机日（baseline）
 2) 从 causal_panel 中自动提名高强度危机局部峰值（candidate）
-3) 输出可审计的冲击日目录（data/crisis_shock_catalog.json）
+3) 可选合并外生冲击清单（exogenous catalog）
+4) 输出可审计的冲击日目录（data/crisis_shock_catalog.json）
 
 注意：
 - 该目录用于“扩展功效分析”，不替代 events_v2 的人工核验样本。
@@ -17,7 +18,7 @@ import argparse
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 from utils import parse_date, percentile, read_panel_rows
 
@@ -27,6 +28,9 @@ DATA_DIR = BASE_DIR / "data"
 EVENTS_FILE = DATA_DIR / "events_v2.json"
 PANEL_FILE = DATA_DIR / "causal_panel.json"
 OUT_FILE = DATA_DIR / "crisis_shock_catalog.json"
+EXOGENOUS_FILE = DATA_DIR / "exogenous_shocks_us.json"
+MIN_TREATED_SAMPLES_TARGET = 12
+MIN_TREATED_RATIO_TARGET = 0.002
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,6 +50,26 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=30,
         help="构造非重叠冲击集时的最小间隔（默认 30 天）",
+    )
+    p.add_argument(
+        "--nonoverlap-gaps",
+        default="30,45,60",
+        help="额外输出的非重叠间隔矩阵（逗号分隔，例如 30,45,60）",
+    )
+    p.add_argument(
+        "--exogenous-file",
+        default=str(EXOGENOUS_FILE),
+        help="外生冲击清单 JSON 文件路径（默认 data/exogenous_shocks_us.json）",
+    )
+    p.add_argument(
+        "--disable-exogenous",
+        action="store_true",
+        help="禁用外生冲击清单，仅使用 manual + auto",
+    )
+    p.add_argument(
+        "--exogenous-categories",
+        default="",
+        help="仅保留指定 category（逗号分隔）；为空表示不过滤",
     )
     p.add_argument(
         "--effect-lag-start",
@@ -77,6 +101,81 @@ def load_manual_crisis_dates(events_path: Path) -> List[str]:
         if isinstance(d, str):
             out.append(d)
     return sorted(set(out))
+
+
+def parse_gap_list(raw: str, fallback: int) -> List[int]:
+    out = []
+    for part in str(raw or "").split(","):
+        s = part.strip()
+        if not s:
+            continue
+        try:
+            v = int(s)
+        except Exception:
+            continue
+        if v > 0:
+            out.append(v)
+    if fallback > 0:
+        out.append(int(fallback))
+    return sorted(set(out))
+
+
+def parse_category_filter(raw: str) -> set[str]:
+    out = set()
+    for part in str(raw or "").split(","):
+        s = part.strip().lower()
+        if s:
+            out.add(s)
+    return out
+
+
+def load_exogenous_candidates(
+    exogenous_path: Path,
+    category_filter: set[str] | None = None,
+) -> List[dict]:
+    if not exogenous_path.exists():  # type: ignore
+        return []
+    try:
+        with exogenous_path.open("r", encoding="utf-8") as f:  # type: ignore
+            payload = json.load(f)  # type: ignore
+    except Exception:
+        return []
+
+    rows = []
+    if isinstance(payload, dict):
+        maybe_rows = payload.get("events", [])  # type: ignore
+        if isinstance(maybe_rows, list):
+            rows = maybe_rows
+    elif isinstance(payload, list):
+        rows = payload
+
+    out = []
+    filters = category_filter or set()
+    for row in rows:  # type: ignore
+        if not isinstance(row, dict):
+            continue
+        d = row.get("date")
+        if not isinstance(d, str):
+            continue
+        try:
+            parse_date(d)
+        except Exception:
+            continue
+        cat = str(row.get("category", "unspecified") or "unspecified").strip().lower()
+        if filters and cat not in filters:
+            continue
+        out.append(
+            {
+                "date": d,
+                "category": cat,
+                "label": str(row.get("label", "") or ""),
+                "source": str(row.get("source", "exogenous_catalog") or "exogenous_catalog"),
+                "priority_score": float(row.get("priority_score", 1000.0) or 1000.0),
+                "candidate_type": "exogenous",
+            }
+        )
+    out.sort(key=lambda x: str(x.get("date", "")))  # type: ignore
+    return out
 
 
 def _is_local_peak(series: Dict[str, float], day_iso: str, radius: int = 3) -> bool:
@@ -169,6 +268,7 @@ def build_nonoverlap_catalog(
     manual_dates: List[str],
     auto_candidates: List[dict],  # type: ignore
     min_gap_days: int,
+    exogenous_candidates: List[dict] | None = None,  # type: ignore
 ) -> Tuple[List[str], List[dict]]:
     """
     按优先级构建“非重叠冲击集”：
@@ -181,8 +281,19 @@ def build_nonoverlap_catalog(
             {
                 "date": d,
                 "source": "manual",
-                "priority": 2,
+                "priority": 3,
                 "score": 1e18,
+            }
+        )
+    for exo in (exogenous_candidates or []):
+        entries.append(
+            {
+                "date": exo.get("date"),
+                "source": "exogenous",
+                "source_label": exo.get("label", ""),
+                "source_category": exo.get("category", ""),
+                "priority": 2,
+                "score": float(exo.get("priority_score", 1000.0) or 1000.0),  # type: ignore
             }
         )
     for c in auto_candidates:
@@ -210,6 +321,8 @@ def build_nonoverlap_catalog(
                     "date": d_iso,
                     "source": e.get("source"),
                     "score": e.get("score"),
+                    "source_label": e.get("source_label", ""),
+                    "source_category": e.get("source_category", ""),
                     "reason": "too_close_to_selected",
                     "nearest_selected_date": near_date,
                     "nearest_selected_days": near_days,
@@ -222,6 +335,37 @@ def build_nonoverlap_catalog(
     kept = sorted(set(kept))
     dropped.sort(key=lambda x: x.get("date", ""))  # type: ignore
     return kept, dropped
+
+
+def build_nonoverlap_matrix(
+    manual_dates: List[str],
+    auto_candidates: List[dict],  # type: ignore
+    exogenous_candidates: List[dict],  # type: ignore
+    gaps: Iterable[int],
+) -> dict:
+    normalized_gaps: List[int] = []
+    for g in gaps:
+        try:
+            v = int(g)
+        except Exception:
+            continue
+        if v > 0:
+            normalized_gaps.append(v)
+    out = {}
+    for gap in sorted(set(normalized_gaps)):
+        key = f"shock_dates_nonoverlap_{int(gap)}d"
+        kept, dropped = build_nonoverlap_catalog(
+            manual_dates=manual_dates,
+            auto_candidates=auto_candidates,
+            exogenous_candidates=exogenous_candidates,
+            min_gap_days=int(gap),
+        )
+        out[key] = {
+            "gap_days": int(gap),
+            "shock_dates": kept,
+            "dropped": dropped,
+        }
+    return out
 
 
 def project_treated_support(
@@ -268,10 +412,16 @@ def project_treated_support(
             treated_samples += 1
 
     treated_ratio = (treated_samples / float(n_samples)) if n_samples > 0 else 0.0
+    required_by_ratio = int((float(MIN_TREATED_RATIO_TARGET) * max(1, n_samples)) + 0.999999)
+    required_treated = max(int(MIN_TREATED_SAMPLES_TARGET), required_by_ratio)
+    treated_shortfall = max(0, required_treated - int(treated_samples))
     return {
         "n_samples_for_ml_projection": int(n_samples),
         "treated_samples_projection": int(treated_samples),
         "treated_ratio_projection": round(treated_ratio, 6),  # type: ignore
+        "treated_samples_required_projection": int(required_treated),
+        "treated_shortfall_projection": int(treated_shortfall),
+        "treated_support_ok_projection": treated_shortfall == 0,
         "effect_lag_start": int(lag_start),
         "effect_window_days": int(lag_end),
     }
@@ -281,6 +431,13 @@ def main() -> None:
     args = parse_args()
     manual_dates = load_manual_crisis_dates(EVENTS_FILE)
     rows = read_panel_rows(PANEL_FILE, args.policy)
+    exogenous_filter = parse_category_filter(args.exogenous_categories)
+    exogenous_candidates: List[dict] = []  # type: ignore
+    if not args.disable_exogenous:
+        exogenous_candidates = load_exogenous_candidates(
+            Path(str(args.exogenous_file)),  # type: ignore
+            category_filter=exogenous_filter,
+        )
     auto_candidates, thr = build_auto_candidates(
         rows,
         peak_percentile=args.peak_percentile,
@@ -290,25 +447,70 @@ def main() -> None:
         exclude_near_manual_days=args.exclude_near_manual_days,
     )
 
-    all_dates = sorted(set(manual_dates + [c["date"] for c in auto_candidates]))  # type: ignore
-    nonoverlap_key = f"shock_dates_nonoverlap_{int(args.nonoverlap_gap_days)}d"
-    nonoverlap_dates, nonoverlap_drops = build_nonoverlap_catalog(
+    all_dates = sorted(
+        set(
+            manual_dates
+            + [str(c.get("date")) for c in auto_candidates if isinstance(c.get("date"), str)]  # type: ignore
+            + [str(c.get("date")) for c in exogenous_candidates if isinstance(c.get("date"), str)]  # type: ignore
+        )
+    )
+    gaps = parse_gap_list(str(args.nonoverlap_gaps or ""), int(args.nonoverlap_gap_days))
+    matrix = build_nonoverlap_matrix(
         manual_dates=manual_dates,
         auto_candidates=auto_candidates,
-        min_gap_days=int(args.nonoverlap_gap_days),
+        exogenous_candidates=exogenous_candidates,
+        gaps=gaps,
     )
+    nonoverlap_key = f"shock_dates_nonoverlap_{int(args.nonoverlap_gap_days)}d"
+    primary_profile = matrix.get(nonoverlap_key)
+    if primary_profile is None and matrix:
+        nonoverlap_key = sorted(matrix.keys())[0]
+        primary_profile = matrix[nonoverlap_key]
+    primary_dates = list(primary_profile.get("shock_dates", [])) if isinstance(primary_profile, dict) else []  # type: ignore
+    primary_drops = list(primary_profile.get("dropped", [])) if isinstance(primary_profile, dict) else []  # type: ignore
+
     support_projection_main = project_treated_support(
         rows=rows,
         shock_dates=all_dates,
         effect_lag_start=int(args.effect_lag_start),
         effect_window_days=int(args.effect_window_days),
     )
-    support_projection_nonoverlap = project_treated_support(
-        rows=rows,
-        shock_dates=nonoverlap_dates,
-        effect_lag_start=int(args.effect_lag_start),
-        effect_window_days=int(args.effect_window_days),
-    )
+
+    support_projection = {"shock_dates": support_projection_main}
+    nonoverlap_profiles = []
+    for key in sorted(matrix.keys()):
+        profile = matrix[key]
+        shock_dates = list(profile.get("shock_dates", []))  # type: ignore
+        drops = list(profile.get("dropped", []))  # type: ignore
+        proj = project_treated_support(
+            rows=rows,
+            shock_dates=shock_dates,
+            effect_lag_start=int(args.effect_lag_start),
+            effect_window_days=int(args.effect_window_days),
+        )
+        support_projection[key] = proj
+        nonoverlap_profiles.append(
+            {
+                "key": key,
+                "gap_days": int(profile.get("gap_days", 0)),  # type: ignore
+                "n_dates": len(shock_dates),
+                "dropped_dates": len(drops),
+                "treated_samples_projection": int(proj["treated_samples_projection"]),
+                "treated_ratio_projection": float(proj["treated_ratio_projection"]),
+                "treated_shortfall_projection": int(proj["treated_shortfall_projection"]),
+                "treated_support_ok_projection": bool(proj["treated_support_ok_projection"]),
+            }
+        )
+
+    if nonoverlap_key in support_projection:
+        support_projection_nonoverlap = support_projection[nonoverlap_key]
+    else:
+        support_projection_nonoverlap = project_treated_support(
+            rows=rows,
+            shock_dates=primary_dates,
+            effect_lag_start=int(args.effect_lag_start),
+            effect_window_days=int(args.effect_window_days),
+        )
 
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
@@ -316,6 +518,7 @@ def main() -> None:
         "source_files": {
             "events_v2": str(EVENTS_FILE),
             "causal_panel": str(PANEL_FILE),
+            "exogenous_catalog": str(args.exogenous_file or ""),
         },
         "config": {
             "peak_percentile": args.peak_percentile,
@@ -323,43 +526,58 @@ def main() -> None:
             "max_candidates": args.max_candidates,
             "exclude_near_manual_days": args.exclude_near_manual_days,
             "nonoverlap_gap_days": int(args.nonoverlap_gap_days),
+            "nonoverlap_gaps": gaps,
+            "exogenous_enabled": not bool(args.disable_exogenous),
+            "exogenous_category_filter": sorted(exogenous_filter),
             "effect_lag_start": int(args.effect_lag_start),
             "effect_window_days": int(args.effect_window_days),
         },
         "summary": {
             "manual_dates": len(manual_dates),
+            "exogenous_candidates": len(exogenous_candidates),
             "auto_candidates": len(auto_candidates),
             "total_shock_dates": len(all_dates),
-            "total_shock_dates_nonoverlap": len(nonoverlap_dates),
-            "nonoverlap_dropped": len(nonoverlap_drops),
+            "total_shock_dates_nonoverlap": len(primary_dates),
+            "nonoverlap_dropped": len(primary_drops),
             "auto_candidate_threshold_value": thr,
+            "nonoverlap_profiles": nonoverlap_profiles,
         },
         "manual_shock_dates": manual_dates,
+        "exogenous_candidates": exogenous_candidates,
         "auto_candidates": auto_candidates,
-        "nonoverlap_drops": nonoverlap_drops,
-        "shock_dates_nonoverlap": nonoverlap_dates,
-        nonoverlap_key: nonoverlap_dates,
-        "support_projection": {
-            "shock_dates": support_projection_main,
-            "shock_dates_nonoverlap": support_projection_nonoverlap,
-            nonoverlap_key: support_projection_nonoverlap,
-        },
+        "nonoverlap_drops": primary_drops,
+        "shock_dates_nonoverlap": primary_dates,
+        nonoverlap_key: primary_dates,
+        "nonoverlap_matrix": matrix,
+        "support_projection": support_projection,
         "shock_dates": all_dates,
     }
+    payload["support_projection"]["shock_dates_nonoverlap"] = support_projection_nonoverlap  # type: ignore
+    payload["support_projection"][nonoverlap_key] = support_projection_nonoverlap  # type: ignore
+    for key, profile in matrix.items():
+        payload[key] = list(profile.get("shock_dates", []))  # type: ignore
 
     with OUT_FILE.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)  # type: ignore
 
     print("=== Shock Catalog Builder ===")
     print(f"manual_dates: {len(manual_dates)}")
+    print(f"exogenous_candidates: {len(exogenous_candidates)}")
     print(f"auto_candidates: {len(auto_candidates)}")
     print(f"total_shock_dates: {len(all_dates)}")
-    print(f"{nonoverlap_key}: {len(nonoverlap_dates)}")
+    print(f"{nonoverlap_key}: {len(primary_dates)}")
     print(
         "treated_projection(main/nonoverlap): "
         f"{support_projection_main['treated_samples_projection']}/"
         f"{support_projection_nonoverlap['treated_samples_projection']}"
     )
+    for p in nonoverlap_profiles:
+        print(
+            f"  - {p['key']}: n_dates={p['n_dates']}, "
+            f"treated={p['treated_samples_projection']}, "
+            f"ratio={p['treated_ratio_projection']:.6f}, "
+            f"shortfall={p['treated_shortfall_projection']}"
+        )
     print(f"[输出] {OUT_FILE}")
 
 

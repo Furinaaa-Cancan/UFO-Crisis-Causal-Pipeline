@@ -382,6 +382,41 @@ class TestStrictLogic(unittest.TestCase):
         self.assertIn("2020-03-01", kept)
         self.assertGreaterEqual(len(dropped), 1)
 
+    def test_shock_catalog_load_exogenous_candidates_with_category_filter(self):
+        payload = {
+            "events": [
+                {"date": "2020-01-01", "label": "A", "category": "finance"},
+                {"date": "2020-02-01", "label": "B", "category": "geopolitics"},
+                {"date": "bad-date", "label": "C", "category": "finance"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            fp = Path(tmp) / "exo.json"
+            fp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            rows = shock_catalog_builder.load_exogenous_candidates(fp, {"finance"})
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["date"], "2020-01-01")
+        self.assertEqual(rows[0]["category"], "finance")
+
+    def test_shock_catalog_parse_gap_list_includes_fallback(self):
+        gaps = shock_catalog_builder.parse_gap_list("45,60", 30)
+        self.assertEqual(gaps, [30, 45, 60])
+
+    def test_shock_catalog_nonoverlap_matrix_generates_multi_gap_keys(self):
+        manual = ["2020-01-01"]
+        auto = [{"date": "2020-02-01", "crisis_count": 500.0}]
+        exo = [{"date": "2020-03-15", "priority_score": 1200.0, "label": "X", "category": "finance"}]
+        matrix = shock_catalog_builder.build_nonoverlap_matrix(
+            manual_dates=manual,
+            auto_candidates=auto,
+            exogenous_candidates=exo,
+            gaps=[30, 45, 60],
+        )
+        self.assertIn("shock_dates_nonoverlap_30d", matrix)
+        self.assertIn("shock_dates_nonoverlap_45d", matrix)
+        self.assertIn("shock_dates_nonoverlap_60d", matrix)
+
     def test_collect_paged_source_urls_builds_expected_range(self):
         src = {
             "paged_url_template": "https://x.example/feed/?paged={page}",
