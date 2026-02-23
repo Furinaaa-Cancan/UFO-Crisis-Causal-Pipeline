@@ -234,6 +234,42 @@ class TestStrictLogic(unittest.TestCase):
         d = causal_analyzer.parse_date("2026-02-21")
         self.assertGreater(model_did.min_distance_to_shocks(d, []), 1000)
 
+    def test_did_window_uses_placebo_null_ci95_field(self):
+        start = model_did.parse_date("2024-01-01")
+        series = {}
+        for i in range(80):
+            day = start + timedelta(days=i)
+            series[day] = float(i % 5)
+        shocks = [start + timedelta(days=25), start + timedelta(days=40), start + timedelta(days=55)]
+        placebo_pool = [start + timedelta(days=i) for i in range(10, 70)]
+
+        with mock.patch.object(model_did, "PERMUTATIONS", 40):
+            result = model_did.evaluate_window(series, shocks, placebo_pool, 7)
+
+        self.assertIn("placebo_null_ci95", result)
+        self.assertNotIn("ci95", result)
+
+    def test_causal_ml_treated_support_gate(self):
+        diag_low = model_causal_ml.evaluate_treatment_support(
+            n_samples=1000,
+            treated_samples=6,
+            min_treated_samples=12,
+            min_treated_ratio=0.002,
+        )
+        self.assertFalse(diag_low["treated_support_ok"])
+        self.assertFalse(diag_low["treated_samples_ok"])
+        self.assertTrue(diag_low["treated_ratio_ok"])
+
+        diag_ok = model_causal_ml.evaluate_treatment_support(
+            n_samples=1000,
+            treated_samples=20,
+            min_treated_samples=12,
+            min_treated_ratio=0.002,
+        )
+        self.assertTrue(diag_ok["treated_support_ok"])
+        self.assertTrue(diag_ok["treated_samples_ok"])
+        self.assertTrue(diag_ok["treated_ratio_ok"])
+
     def test_analyze_scraped_uses_reachable_coverage_target_from_lookback(self):
         # With lookback=60, coverage target should be 60 (not hard-coded 180).
         payload = {

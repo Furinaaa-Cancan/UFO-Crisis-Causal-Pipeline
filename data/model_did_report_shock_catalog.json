@@ -1,6 +1,7 @@
 {
-  "generated_at": "2026-02-23T01:29:18.622424+00:00",
+  "generated_at": "2026-02-23T01:40:43.231109+00:00",
   "model": "window_mean_diff_permutation_test",
+  "interval_note": "placebo_null_ci95 is a placebo/null reference band, not an estimator confidence interval",
   "policy": "strict-balanced",
   "observed_days": 12672,
   "status": "ok",
@@ -16,7 +17,7 @@
       "reason": "estimated",
       "att": -22.655736,
       "p_value": 0.99,
-      "ci95": [
+      "placebo_null_ci95": [
         -13.933442,
         13.161769
       ],
@@ -28,7 +29,7 @@
       "reason": "estimated",
       "att": -12.051436,
       "p_value": 0.987,
-      "ci95": [
+      "placebo_null_ci95": [
         -8.578964,
         11.161101
       ],
@@ -40,7 +41,7 @@
       "reason": "estimated",
       "att": -2.774033,
       "p_value": 0.8385,
-      "ci95": [
+      "placebo_null_ci95": [
         -7.550703,
         7.214552
       ],
@@ -54,7 +55,7 @@
       "reason": "estimated",
       "att": 0.005714,
       "p_value": 0.062,
-      "ci95": [
+      "placebo_null_ci95": [
         -0.005714,
         0.005714
       ],
@@ -66,7 +67,7 @@
       "reason": "estimated",
       "att": 0.0,
       "p_value": 0.9275,
-      "ci95": [
+      "placebo_null_ci95": [
         -0.011429,
         0.011429
       ],
@@ -78,7 +79,7 @@
       "reason": "estimated",
       "att": -0.011429,
       "p_value": 0.974,
-      "ci95": [
+      "placebo_null_ci95": [
         -0.017143,
         0.028619
       ],
@@ -90,7 +91,7 @@
       "reason": "estimated",
       "att": 0.0,
       "p_value": 0.959,
-      "ci95": [
+      "placebo_null_ci95": [
         -0.011429,
         0.011429
       ],

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-02-23T01:29:55.875102+00:00",
+  "generated_at": "2026-02-23T01:40:53.054919+00:00",
   "decision": {
     "verdict": "仅发现相关性或弱信号，因果证据不足",
     "approval_status": "REJECTED",
@@ -178,7 +178,7 @@
       "event_passed": false,
       "synth_status": "ok",
       "synth_passed": true,
-      "causal_ml_status": "ok",
+      "causal_ml_status": "pending",
       "causal_ml_passed": false,
       "causal_ml_dependency_ready": true
     },
@@ -275,14 +275,14 @@
       "inference_level": "TEMPORAL_ASSOCIATION_ONLY"
     },
     "previous_signature_exists": true,
-    "previous_generated_at": "2026-02-22T15:45:04.264393+00:00",
+    "previous_generated_at": "2026-02-23T01:39:26.622138+00:00",
     "cross_day_repeat": true,
-    "same_day_repeat": false,
-    "same_day_prev_repro_passed": false,
-    "repro_signature_matches": 1,
-    "latest_signature_match_generated_at": "2026-02-22T15:43:30.043808+00:00",
-    "history_runs_count_before_append": 20,
-    "history_runs_count": 21
+    "same_day_repeat": true,
+    "same_day_prev_repro_passed": true,
+    "repro_signature_matches": 2,
+    "latest_signature_match_generated_at": "2026-02-23T01:29:55.875102+00:00",
+    "history_runs_count_before_append": 25,
+    "history_runs_count": 26
   },
   "research_level": "L1",
   "next_actions": [

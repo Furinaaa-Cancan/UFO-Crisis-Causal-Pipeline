@@ -327,6 +327,8 @@ python strict_reviewer.py \
 > 注意：`model_causal_ml.py` 只有在非 fallback 建模链路（例如 `cross_fitted_rf` 或 `cross_fitted_linear_ridge`，且非 `constant_cate_fallback`）并且异质性可估时才允许 `causal_ml_passed=true`。
 > 注意：`model_causal_ml.py` 默认估计“冲击日 `t` 对前向窗口 `t+1..t+7` 的影响”，以对齐主因果假设（而非同日效应）。
 > 注意：Causal ML 严格闸门要求 `ATT` 与 `ATE` 同向为正（`att_positive && ate_positive && ate_significant`），避免仅靠单一指标放行。
+> 注意：`model_causal_ml.py` 现增加处理组支持度闸门（默认 `min_treated_samples=12`、`min_treated_ratio=0.002`）；处理过稀时返回 `pending`，避免在极稀疏处理率下过度解释。
+> 注意：`model_did_report.json` 的窗口区间字段已改为 `placebo_null_ci95`（零分布参考带），不代表估计器置信区间。
 > 注意：`model_did.py` / `model_event_study.py` / `model_synth_control.py` / `model_causal_ml.py` 默认采用 `events_v2_crisis_dates` 作为冲击日主轨（>=5 日时）；当显式传入 `--shock-catalog-file` 时会切换到 `shock_catalog_dates` 主轨。若主轨不足则回退新闻量阈值，并在报告写出 `shock_source` 审计字段。
 > 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，
 > 以避免触发国家 RSS 联网抓取，保证离线/复现语义一致。

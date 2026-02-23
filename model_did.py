@@ -185,7 +185,7 @@ def evaluate_window(
             "reason": "insufficient_window_observations",
             "att": None,
             "p_value": None,
-            "ci95": None,
+            "placebo_null_ci95": None,
         }
 
     obs_att = mean(obs_vals)
@@ -197,7 +197,7 @@ def evaluate_window(
             "reason": "insufficient_placebo_pool",
             "att": round(obs_att, 6),  # type: ignore
             "p_value": None,
-            "ci95": None,
+            "placebo_null_ci95": None,
         }
 
     random_inst = make_rng(SEED + w)
@@ -216,7 +216,7 @@ def evaluate_window(
             "reason": "null_distribution_empty",
             "att": round(obs_att, 6),  # type: ignore
             "p_value": None,
-            "ci95": None,
+            "placebo_null_ci95": None,
         }
 
     p_val = sum(v >= obs_att for v in null) / float(len(null))
@@ -227,7 +227,7 @@ def evaluate_window(
         "reason": "estimated",
         "att": round(obs_att, 6),  # type: ignore
         "p_value": round(p_val, 6),  # type: ignore
-        "ci95": ci,
+        "placebo_null_ci95": ci,
         "n_obs_events": len(obs_vals),
         "n_null": len(null),
     }
@@ -276,6 +276,7 @@ def main() -> None:
     out = {
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
         "model": "window_mean_diff_permutation_test",
+        "interval_note": "placebo_null_ci95 is a placebo/null reference band, not an estimator confidence interval",
         "policy": args.policy,
         "observed_days": len(rows),
         "status": "pending",

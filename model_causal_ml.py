@@ -44,6 +44,8 @@ EVENTS_FILE = DATA_DIR / "events_v2.json"
 
 MIN_OBS_DAYS = 120
 MIN_SHOCK_DAYS = 10
+MIN_TREATED_SAMPLES = 12
+MIN_TREATED_RATIO = 0.002
 SEED = 20260221
 PERMUTATIONS = 2000
 EV2_MIN_DATES = 5
@@ -59,6 +61,18 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--min-observed-days", type=int, default=MIN_OBS_DAYS)
     p.add_argument("--min-shock-days", type=int, default=MIN_SHOCK_DAYS)
+    p.add_argument(
+        "--min-treated-samples",
+        type=int,
+        default=MIN_TREATED_SAMPLES,
+        help="最少处理组样本数（默认 12）",
+    )
+    p.add_argument(
+        "--min-treated-ratio",
+        type=float,
+        default=MIN_TREATED_RATIO,
+        help="最少处理组占比（默认 0.002，即 0.2%）",
+    )
     p.add_argument("--folds", type=int, default=5)
     p.add_argument("--permutations", type=int, default=PERMUTATIONS)
     p.add_argument(
@@ -90,6 +104,24 @@ def _safe_float(v, default=0.0) -> float:
         return float(v)
     except Exception:
         return default
+
+
+def evaluate_treatment_support(
+    n_samples: int,
+    treated_samples: int,
+    min_treated_samples: int,
+    min_treated_ratio: float,
+) -> dict:
+    ratio = (treated_samples / float(n_samples)) if n_samples > 0 else 0.0
+    enough_samples = treated_samples >= max(1, int(min_treated_samples))
+    enough_ratio = ratio >= float(min_treated_ratio)
+    support_ok = enough_samples and enough_ratio
+    return {
+        "treated_ratio": ratio,
+        "treated_support_ok": support_ok,
+        "treated_samples_ok": enough_samples,
+        "treated_ratio_ok": enough_ratio,
+    }
 
 
 def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
@@ -591,6 +623,11 @@ def main() -> None:
             "shock_days": 0,
             "shock_days_defined": 0,
             "treated_ratio": None,
+            "min_treated_samples_required": int(args.min_treated_samples),
+            "min_treated_ratio_required": float(args.min_treated_ratio),
+            "treated_support_ok": False,
+            "treated_samples_ok": False,
+            "treated_ratio_ok": False,
             "effect_lag_start": int(args.effect_lag_start),
             "effect_window_days": int(args.effect_window_days),
             "n_features": 0,
@@ -607,6 +644,13 @@ def main() -> None:
             "null_draws": 0,
             "cate_mean": None,
             "cate_std_proxy": None,
+            "overlap": {
+                "ps_mean_treated": None,
+                "ps_mean_control": None,
+                "ps_p05": None,
+                "ps_p95": None,
+                "in_overlap_band_0.05_0.95_share": None,
+            },
             "heterogeneity": {},
             "estimand": "",
         },
@@ -616,6 +660,7 @@ def main() -> None:
             "ate_significant": False,
             "nuisance_model_ready": False,
             "cate_model_ready": False,
+            "treated_support_sufficient": False,
             "heterogeneity_estimated": False,
             "causal_ml_passed": False,
         },
@@ -650,13 +695,31 @@ def main() -> None:
         out["sample"]["n_samples_for_ml"] = len(data)  # type: ignore
         out["sample"]["n_features"] = len(feature_names)  # type: ignore
         out["sample"]["feature_names"] = feature_names  # type: ignore
-        out["sample"]["treated_ratio"] = (round(shock_days / float(len(data)), 6) if data else None)  # type: ignore
+        support_diag = evaluate_treatment_support(
+            n_samples=len(data),
+            treated_samples=shock_days,
+            min_treated_samples=int(args.min_treated_samples),
+            min_treated_ratio=float(args.min_treated_ratio),
+        )
+        out["sample"]["treated_ratio"] = round(support_diag["treated_ratio"], 6)  # type: ignore
+        out["sample"]["treated_support_ok"] = bool(support_diag["treated_support_ok"])  # type: ignore
+        out["sample"]["treated_samples_ok"] = bool(support_diag["treated_samples_ok"])  # type: ignore
+        out["sample"]["treated_ratio_ok"] = bool(support_diag["treated_ratio_ok"])  # type: ignore
+        out["gates"]["treated_support_sufficient"] = bool(support_diag["treated_support_ok"])  # type: ignore
 
         effective_min_shocks = EV2_MIN_DATES if shock_source in ("events_v2_crisis_dates", "shock_catalog_dates") else args.min_shock_days
         if len(data) < args.min_observed_days:
             out["reason"] = f"n_samples_for_ml < {args.min_observed_days}，构造特征后样本不足"  # type: ignore
         elif shock_days < effective_min_shocks:
             out["reason"] = f"shock_days < {effective_min_shocks}，处理组样本不足"  # type: ignore
+        elif not bool(support_diag["treated_support_ok"]):
+            out["status"] = "pending"  # type: ignore
+            out["reason"] = (
+                f"treated_support_too_sparse（treated={shock_days}/{len(data)}, "
+                f"ratio={support_diag['treated_ratio']:.6f}, "
+                f"need_samples>={int(args.min_treated_samples)}, "
+                f"need_ratio>={float(args.min_treated_ratio):.6f}）"
+            )  # type: ignore
         else:
             ys = [float(r["y"]) for r in data]
             ts = [int(r["t"]) for r in data]
@@ -698,6 +761,16 @@ def main() -> None:
                 out["estimation"]["null_draws"] = len(null)  # type: ignore
                 out["estimation"]["cate_mean"] = round(cate_mean, 6)  # type: ignore
                 out["estimation"]["cate_std_proxy"] = (round(cate_std_proxy, 6) if cate_std_proxy is not None else None)  # type: ignore
+                treated_ps = [float(p) for p, t in zip(e_hat, ts) if int(t) == 1]
+                control_ps = [float(p) for p, t in zip(e_hat, ts) if int(t) == 0]
+                in_overlap = [p for p in e_hat if 0.05 <= float(p) <= 0.95]
+                out["estimation"]["overlap"] = {  # type: ignore
+                    "ps_mean_treated": round(mean(treated_ps), 6) if treated_ps else None,
+                    "ps_mean_control": round(mean(control_ps), 6) if control_ps else None,
+                    "ps_p05": round(quantile(e_hat, 0.05), 6) if e_hat else None,
+                    "ps_p95": round(quantile(e_hat, 0.95), 6) if e_hat else None,
+                    "in_overlap_band_0.05_0.95_share": (round(len(in_overlap) / float(len(e_hat)), 6) if e_hat else None),
+                }
                 out["estimation"]["heterogeneity"] = hetero  # type: ignore
 
                 att_positive = att > 0

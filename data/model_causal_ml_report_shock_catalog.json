@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-02-23T01:29:27.870039+00:00",
+  "generated_at": "2026-02-23T01:40:52.735926+00:00",
   "model": "causal_ml_orthogonal_forest",
   "policy": "strict-balanced",
   "observed_days": 12672,
-  "status": "ok",
-  "reason": "causal_ml_estimated_but_gate_not_met",
+  "status": "pending",
+  "reason": "treated_support_too_sparse（treated=15/11770, ratio=0.001274, need_samples>=12, need_ratio>=0.002000）",
   "dependencies": {
     "sklearn_ready": true,
     "sklearn_error": ""
@@ -17,6 +17,11 @@
     "shock_days": 15,
     "shock_days_defined": 25,
     "treated_ratio": 0.001274,
+    "min_treated_samples_required": 12,
+    "min_treated_ratio_required": 0.002,
+    "treated_support_ok": false,
+    "treated_samples_ok": true,
+    "treated_ratio_ok": false,
     "effect_lag_start": 1,
     "effect_window_days": 7,
     "n_features": 16,
@@ -40,35 +45,34 @@
     ]
   },
   "estimation": {
-    "nuisance_method": "cross_fitted_rf",
-    "cate_method": "orthogonal_random_forest_proxy",
-    "orthogonal_ate": 0.491669,
-    "orthogonal_att": -10.792008,
-    "ate_p_value": 0.847076,
+    "nuisance_method": "",
+    "cate_method": "",
+    "orthogonal_ate": null,
+    "orthogonal_att": null,
+    "ate_p_value": null,
     "ate_interval_note": "ate_placebo_null_ci95 is a placebo/null reference band, not an estimator confidence interval",
-    "ate_placebo_null_ci95": [
-      -3.569981,
-      4.383147
-    ],
-    "null_draws": 2000,
-    "cate_mean": 0.71224,
-    "cate_std_proxy": 171.721112,
-    "heterogeneity": {
-      "q33": 0.0,
-      "q67": 0.004841,
-      "top_mean": 72.852242,
-      "bottom_mean": -38.763784,
-      "spread_top_minus_bottom": 111.616026
+    "ate_placebo_null_ci95": null,
+    "null_draws": 0,
+    "cate_mean": null,
+    "cate_std_proxy": null,
+    "overlap": {
+      "ps_mean_treated": null,
+      "ps_mean_control": null,
+      "ps_p05": null,
+      "ps_p95": null,
+      "in_overlap_band_0.05_0.95_share": null
     },
-    "estimand": "E[ufo_count_(t+1..t+7) | do(shock_t=1)]"
+    "heterogeneity": {},
+    "estimand": ""
   },
   "gates": {
     "att_positive": false,
-    "ate_positive": true,
+    "ate_positive": false,
     "ate_significant": false,
-    "nuisance_model_ready": true,
-    "cate_model_ready": true,
-    "heterogeneity_estimated": true,
+    "nuisance_model_ready": false,
+    "cate_model_ready": false,
+    "treated_support_sufficient": false,
+    "heterogeneity_estimated": false,
     "causal_ml_passed": false
   }
 }
