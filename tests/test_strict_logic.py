@@ -1011,6 +1011,31 @@ class TestStrictLogic(unittest.TestCase):
         self.assertFalse(cross_day2)
         self.assertTrue(same_day2)
 
+    def test_strict_reviewer_shock_catalog_lock_not_required_when_not_using_catalog(self):
+        panel = {"shock_source": "events_v2_crisis_dates", "shock_catalog_key": ""}
+        diag = strict_reviewer.summarize_shock_catalog_lock(panel, {}, {})
+        self.assertFalse(diag["required"])
+        self.assertTrue(diag["passed"])
+        self.assertEqual(diag["reason"], "not_required")
+
+    def test_strict_reviewer_shock_catalog_lock_requires_signature_match(self):
+        panel = {"shock_source": "shock_catalog_dates", "shock_catalog_key": "shock_dates_nonoverlap_30d"}
+        catalog = {
+            "catalog_signature_sha256": "abc",
+            "shock_dates_nonoverlap_30d": ["2020-01-01"],
+        }
+        lock_bad = {"catalog_signature_sha256": "xyz"}
+        diag_bad = strict_reviewer.summarize_shock_catalog_lock(panel, catalog, lock_bad)
+        self.assertTrue(diag_bad["required"])
+        self.assertFalse(diag_bad["passed"])
+        self.assertEqual(diag_bad["reason"], "catalog_lock_signature_mismatch")
+
+        lock_ok = {"catalog_signature_sha256": "abc"}
+        diag_ok = strict_reviewer.summarize_shock_catalog_lock(panel, catalog, lock_ok)
+        self.assertTrue(diag_ok["required"])
+        self.assertTrue(diag_ok["passed"])
+        self.assertEqual(diag_ok["reason"], "ok")
+
     def test_coverage_audit_includes_source_recency_summary(self):
         raw_items = [
             {"source": "A", "date": "2026-02-21", "title": "x"},

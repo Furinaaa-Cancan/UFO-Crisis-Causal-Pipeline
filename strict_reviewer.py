@@ -31,6 +31,8 @@ MODEL_EVENT_FILE = DATA_DIR / "model_event_study_report.json"
 MODEL_SYNTH_FILE = DATA_DIR / "model_synth_control_report.json"
 MODEL_CAUSAL_ML_FILE = DATA_DIR / "model_causal_ml_report.json"
 EVENTS_V2_FILE = DATA_DIR / "events_v2.json"
+SHOCK_CATALOG_FILE = DATA_DIR / "crisis_shock_catalog.json"
+SHOCK_CATALOG_LOCK_FILE = DATA_DIR / "crisis_shock_catalog_lock.json"
 OFFICIAL_LEAD_DIAG_FILE = DATA_DIR / "official_lead_event_candidates.json"
 OFFICIAL_MEDIA_PAIRS_FILE = DATA_DIR / "official_media_pairs.json"
 OUT_FILE = DATA_DIR / "strict_review_snapshot.json"
@@ -80,6 +82,60 @@ def read_json(path: Path) -> Dict[str, Any]:
         return {}
     with path.open("r", encoding="utf-8") as f:  # type: ignore
         return json.load(f)  # type: ignore
+
+
+def summarize_shock_catalog_lock(
+    panel: Dict[str, Any],
+    catalog: Dict[str, Any],
+    lock: Dict[str, Any],
+) -> Dict[str, Any]:
+    panel_shock_source = str(panel.get("shock_source", "") or "")
+    panel_shock_key = str(panel.get("shock_catalog_key", "") or "")
+    using_catalog = panel_shock_source == "shock_catalog_dates"
+
+    if not using_catalog:
+        return {
+            "required": False,
+            "passed": True,
+            "reason": "not_required",
+            "panel_shock_source": panel_shock_source,
+            "panel_shock_key": panel_shock_key,
+            "catalog_signature": "",
+            "lock_signature": "",
+            "signatures_match": True,
+            "key_exists_in_catalog": True,
+        }
+
+    catalog_signature = str(catalog.get("catalog_signature_sha256", "") or "")
+    lock_signature = str(lock.get("catalog_signature_sha256", "") or "")
+    signatures_match = bool(catalog_signature and lock_signature and catalog_signature == lock_signature)
+
+    # panel_shock_key 为空时允许（表示默认 shock_dates）；否则要求目录中存在该键
+    key_exists = (not panel_shock_key) or (panel_shock_key in catalog)
+
+    if not catalog:
+        reason = "catalog_missing_or_invalid"
+    elif not lock:
+        reason = "lock_missing_or_invalid"
+    elif not signatures_match:
+        reason = "catalog_lock_signature_mismatch"
+    elif not key_exists:
+        reason = "panel_shock_key_missing_in_catalog"
+    else:
+        reason = "ok"
+
+    passed = bool(catalog) and bool(lock) and signatures_match and key_exists
+    return {
+        "required": True,
+        "passed": passed,
+        "reason": reason,
+        "panel_shock_source": panel_shock_source,
+        "panel_shock_key": panel_shock_key,
+        "catalog_signature": catalog_signature,
+        "lock_signature": lock_signature,
+        "signatures_match": signatures_match,
+        "key_exists_in_catalog": key_exists,
+    }
 
 
 def load_history_runs(path: Path) -> List[Dict[str, Any]]:
@@ -507,6 +563,7 @@ def build_signature(summary: Dict[str, Any]) -> Dict[str, Any]:
         "approval_level": summary["decision"]["approval_level"],  # type: ignore
         "core_passed": summary["gates"]["core_passed"],  # type: ignore
         "falsification_passed": summary["gates"]["falsification_passed"],  # type: ignore
+        "shock_catalog_lock_passed": summary["gates"]["shock_catalog_lock_passed"],  # type: ignore
         "policy_consistency_passed": summary["gates"]["policy_consistency_passed"],  # type: ignore
         "did_passed": summary["quality"]["models"]["did_passed"],  # type: ignore
         "event_passed": summary["quality"]["models"]["event_passed"],  # type: ignore
@@ -693,6 +750,8 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     synth = read_json(MODEL_SYNTH_FILE)
     causal_ml = read_json(MODEL_CAUSAL_ML_FILE)
     events_v2 = read_json(EVENTS_V2_FILE)
+    shock_catalog = read_json(SHOCK_CATALOG_FILE)
+    shock_catalog_lock = read_json(SHOCK_CATALOG_LOCK_FILE)
     official_lead_diag = read_json(OFFICIAL_LEAD_DIAG_FILE)
     official_media_pairs = read_json(OFFICIAL_MEDIA_PAIRS_FILE)
     prev_snapshot = read_json(OUT_FILE)
@@ -728,6 +787,11 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
     observed_ratio = float(panel.get("observed_ratio", progress_current.get("observed_ratio", 0.0)) or 0.0)  # type: ignore
     max_missing_streak = int(
         panel.get("max_missing_streak", progress_current.get("max_missing_streak", 0)) or 0  # type: ignore
+    )
+    shock_catalog_lock_diag = summarize_shock_catalog_lock(
+        panel=panel if isinstance(panel, dict) else {},
+        catalog=shock_catalog if isinstance(shock_catalog, dict) else {},
+        lock=shock_catalog_lock if isinstance(shock_catalog_lock, dict) else {},
     )
     progress_observed_days = int(progress_current.get("observed_days", 0) or 0)
     progress_shock_days = int(progress_current.get("shock_days", 0) or 0)
@@ -768,6 +832,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
         and sample_gates_passed
         and directional_gates_passed
         and continuity_gate_passed
+        and bool(shock_catalog_lock_diag.get("passed", True))
         and source_gate_passed
         and dual_stable_passed
         and policy_consistency_passed
@@ -844,6 +909,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
             "panel_shock_catalog_key": panel.get("shock_catalog_key", ""),  # type: ignore
             "panel_observed_ratio": round(observed_ratio, 6),  # type: ignore
             "panel_max_missing_streak": max_missing_streak,
+            "shock_catalog_lock": shock_catalog_lock_diag,
             "panel_progress_observed_days": progress_observed_days,
             "panel_progress_shock_days": progress_shock_days,
             "panel_progress_observed_ratio": round(progress_observed_ratio, 6),  # type: ignore
@@ -876,6 +942,7 @@ def build_review(args: argparse.Namespace) -> Dict[str, Any]:
             "sample_gates_passed": sample_gates_passed,
             "directional_gates_passed": directional_gates_passed,
             "continuity_gate_passed": continuity_gate_passed,
+            "shock_catalog_lock_passed": bool(shock_catalog_lock_diag.get("passed", True)),
             "source_gate_passed": source_gate_passed,
             "dual_stable_passed": dual_stable_passed,
             "policy_consistency_passed": policy_consistency_passed,
@@ -949,6 +1016,11 @@ def main() -> None:
     print(f"source_availability_rate: {report['quality']['source_availability_rate']:.4f}")  # type: ignore
     print(f"panel_observed_days: {report['quality']['panel_observed_days']}")  # type: ignore
     print(f"panel_shock_days: {report['quality']['panel_shock_days']}")  # type: ignore
+    print(
+        "shock_catalog_lock: "
+        f"passed={report['gates']['shock_catalog_lock_passed']}, "  # type: ignore
+        f"reason={report['quality']['shock_catalog_lock'].get('reason', 'n/a')}"  # type: ignore
+    )
     print(f"inference_level: {report['inference']['level']}")  # type: ignore
     print(f"inference_conclusion: {report['inference']['conclusion']}")  # type: ignore
     print(

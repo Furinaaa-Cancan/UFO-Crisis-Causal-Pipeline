@@ -34,6 +34,12 @@
 - 规则：`overlap_days >= 30`, `shock_agreement >= 0.7`, `crisis_rel_delta <= 0.6`
 - 来源：`data/strict_dual_review.json`
 
+5b. G5b 冲击目录锁闸门（当使用 shock catalog 时）
+- 规则：若 `panel.shock_source=shock_catalog_dates`，则
+  `data/crisis_shock_catalog.json.catalog_signature_sha256`
+  必须与 `data/crisis_shock_catalog_lock.json.catalog_signature_sha256` 一致，且 `panel_shock_catalog_key` 在目录中存在。
+- 来源：`data/strict_review_snapshot.json` -> `quality.shock_catalog_lock`
+
 6. G6 方向性闸门
 - 规则：`best_lag in [1,30]` 且 `best_corr > 0.1`
 - 来源：`data/causal_report.json` -> `approval.gates` / `panel`
