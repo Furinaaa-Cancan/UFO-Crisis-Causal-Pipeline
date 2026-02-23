@@ -70,6 +70,7 @@
     ├── model_synth_control_report.json # 合成控制简化输出
     ├── model_causal_ml_report.json # 因果机器学习（DML+因果森林代理）输出
     ├── crisis_shock_catalog.json # 扩展冲击日目录（可选功效分析）
+    ├── crisis_shock_catalog_lock.json # 冲击目录锁文件（预注册冻结口径）
     ├── exogenous_shocks_us.json # 外生冲击清单（功效扩展，不替代主轨）
     ├── research_variable_dictionary.json # 变量字典
     └── control_panels/    # 对照组面板（topic/country + 来源配置）
@@ -330,6 +331,7 @@ python strict_reviewer.py \
 > 注意：Causal ML 严格闸门要求 `ATT` 与 `ATE` 同向为正（`att_positive && ate_positive && ate_significant`），避免仅靠单一指标放行。
 > 注意：`model_causal_ml.py` 现增加处理组支持度闸门（默认 `min_treated_samples=12`、`min_treated_ratio=0.002`）；处理过稀时返回 `pending`，避免在极稀疏处理率下过度解释。
 > 注意：`model_did_report.json` 的窗口区间字段已改为 `placebo_null_ci95`（零分布参考带），不代表估计器置信区间。
+> 注意：`model_did.py` 现包含“伪处理（placebo treatment）”双安慰剂审计：`placebo_treatment.windows` 与对应 gates 会约束 `did_passed`，防止偶然显著放行。
 > 注意：`model_did.py` / `model_event_study.py` / `model_synth_control.py` / `model_causal_ml.py` 默认采用 `events_v2_crisis_dates` 作为冲击日主轨（>=5 日时）；当显式传入 `--shock-catalog-file` 时会切换到 `shock_catalog_dates` 主轨。若主轨不足则回退新闻量阈值，并在报告写出 `shock_source` 审计字段。
 > 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，
 > 以避免触发国家 RSS 联网抓取，保证离线/复现语义一致。
@@ -352,6 +354,7 @@ python shock_catalog_builder.py --policy strict-balanced --peak-percentile 98.5 
 - `shock_dates_nonoverlap_30d` / `shock_dates_nonoverlap_45d` / `shock_dates_nonoverlap_60d`
 - `support_projection`（按 Causal ML 口径投影 treated 数与 treated_ratio）
 - `nonoverlap_matrix`（每档间隔的保留数、剔除数与投影支持度）
+- `catalog_signature_sha256`（目录签名，可用于预注册冻结口径）
 
 使用方式（仅在你显式传参时生效）：
 ```bash
@@ -367,6 +370,10 @@ python model_causal_ml.py --policy strict-balanced --shock-catalog-file data/cri
 python model_causal_ml.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_45d
 python model_causal_ml.py --policy strict-balanced --shock-catalog-file data/crisis_shock_catalog.json --shock-catalog-key shock_dates_nonoverlap_60d
 
+# 预注册锁定：先写锁，再按锁复跑
+python shock_catalog_builder.py --policy strict-balanced --write-lock
+python shock_catalog_builder.py --policy strict-balanced --enforce-lock
+
 # 统一管道：离线复现实验 + 扩展冲击目录
 python research_unified_pipeline.py --skip-scrape --skip-causal --only-policy strict-balanced \
   --shock-catalog-file data/crisis_shock_catalog.json \
@@ -376,6 +383,7 @@ python research_unified_pipeline.py --skip-scrape --skip-causal --only-policy st
 说明：
 - 默认不传该参数时，全部脚本仍使用 `events_v2` 主轨，不改变历史基线。
 - 推荐把扩展结果另存为 `*_shock_catalog.json` 进行并排审计，避免覆盖主结论快照。
+- `--enforce-lock` 会校验“参数+输入文件哈希+输出冲击集合”签名一致；若调整参数或输入数据，签名会故意不一致并拒绝通过。
 - 若你要对比“是否引入外生冲击”的差异，可运行：
 ```bash
 python shock_catalog_builder.py --policy strict-balanced --disable-exogenous

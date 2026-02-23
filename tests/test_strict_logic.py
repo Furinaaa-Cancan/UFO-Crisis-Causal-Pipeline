@@ -272,6 +272,34 @@ class TestStrictLogic(unittest.TestCase):
         self.assertTrue(diag_ok["treated_samples_ok"])
         self.assertTrue(diag_ok["treated_ratio_ok"])
 
+    def test_model_did_select_placebo_shock_days_deterministic(self):
+        d0 = causal_analyzer.parse_date("2024-01-01")
+        pool = [d0 + timedelta(days=i) for i in range(30)]
+        s1 = model_did.select_placebo_shock_days(pool, 8, seed_offset=3)
+        s2 = model_did.select_placebo_shock_days(pool, 8, seed_offset=3)
+        self.assertEqual(s1, s2)
+        self.assertEqual(len(s1), 8)
+
+    def test_model_did_placebo_treatment_violation_logic(self):
+        obs = {"status": "ok", "att": 0.4}
+        placebo_bad = {"status": "ok", "att": 0.5, "p_value": 0.05}
+        viol, dom = model_did.is_placebo_treatment_violation(
+            obs_window=obs,
+            placebo_window=placebo_bad,
+            min_effect=0.05,
+        )
+        self.assertTrue(viol)
+        self.assertTrue(dom)
+
+        placebo_ok = {"status": "ok", "att": 0.01, "p_value": 0.5}
+        viol2, dom2 = model_did.is_placebo_treatment_violation(
+            obs_window=obs,
+            placebo_window=placebo_ok,
+            min_effect=0.05,
+        )
+        self.assertFalse(viol2)
+        self.assertFalse(dom2)
+
     def test_analyze_scraped_uses_reachable_coverage_target_from_lookback(self):
         # With lookback=60, coverage target should be 60 (not hard-coded 180).
         payload = {
@@ -416,6 +444,25 @@ class TestStrictLogic(unittest.TestCase):
         self.assertIn("shock_dates_nonoverlap_30d", matrix)
         self.assertIn("shock_dates_nonoverlap_45d", matrix)
         self.assertIn("shock_dates_nonoverlap_60d", matrix)
+
+    def test_shock_catalog_signature_changes_with_content(self):
+        payload_a = {
+            "policy": "strict-balanced",
+            "source_files": {"events_v2": "a"},
+            "source_hashes": {"events_v2_sha256": "x"},
+            "config": {"nonoverlap_gap_days": 30},
+            "manual_shock_dates": ["2020-01-01"],
+            "exogenous_candidates": [{"date": "2020-01-10", "category": "finance", "source": "x"}],
+            "auto_candidates": [{"date": "2020-02-01", "crisis_count": 10}],
+            "shock_dates": ["2020-01-01", "2020-01-10"],
+            "shock_dates_nonoverlap_30d": ["2020-01-01"],
+        }
+        payload_b = dict(payload_a)
+        payload_b["shock_dates"] = ["2020-01-01", "2020-02-01"]
+
+        sig_a = shock_catalog_builder.compute_catalog_signature(payload_a)
+        sig_b = shock_catalog_builder.compute_catalog_signature(payload_b)
+        self.assertNotEqual(sig_a, sig_b)
 
     def test_collect_paged_source_urls_builds_expected_range(self):
         src = {

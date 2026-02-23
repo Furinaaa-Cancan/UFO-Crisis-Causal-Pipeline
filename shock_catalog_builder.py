@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -29,6 +30,7 @@ EVENTS_FILE = DATA_DIR / "events_v2.json"
 PANEL_FILE = DATA_DIR / "causal_panel.json"
 OUT_FILE = DATA_DIR / "crisis_shock_catalog.json"
 EXOGENOUS_FILE = DATA_DIR / "exogenous_shocks_us.json"
+LOCK_FILE = DATA_DIR / "crisis_shock_catalog_lock.json"
 MIN_TREATED_SAMPLES_TARGET = 12
 MIN_TREATED_RATIO_TARGET = 0.002
 
@@ -82,6 +84,21 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=7,
         help="Causal ML 投影：处理后窗口终点（默认 t+7）",
+    )
+    p.add_argument(
+        "--lock-file",
+        default=str(LOCK_FILE),
+        help="冲击目录锁文件路径（默认 data/crisis_shock_catalog_lock.json）",
+    )
+    p.add_argument(
+        "--write-lock",
+        action="store_true",
+        help="写入锁文件（用于预注册冻结口径）",
+    )
+    p.add_argument(
+        "--enforce-lock",
+        action="store_true",
+        help="校验当前目录签名必须与锁文件一致，不一致则退出",
     )
     return p.parse_args()
 
@@ -176,6 +193,100 @@ def load_exogenous_candidates(
         )
     out.sort(key=lambda x: str(x.get("date", "")))  # type: ignore
     return out
+
+
+def file_sha256(path: Path) -> str:
+    if not path.exists():  # type: ignore
+        return ""
+    try:
+        h = hashlib.sha256()
+        with path.open("rb") as f:  # type: ignore
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
+def stable_payload_sha256(payload: object) -> str:
+    normalized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def build_catalog_signature_payload(payload: dict) -> dict:
+    nonoverlap_keys = sorted(
+        [k for k in payload.keys() if isinstance(k, str) and k.startswith("shock_dates_nonoverlap_")]  # type: ignore
+    )
+    return {
+        "policy": payload.get("policy", ""),
+        "source_files": payload.get("source_files", {}),
+        "source_hashes": payload.get("source_hashes", {}),
+        "config": payload.get("config", {}),
+        "manual_shock_dates": payload.get("manual_shock_dates", []),
+        "exogenous_candidates": [
+            {
+                "date": r.get("date"),
+                "category": r.get("category"),
+                "source": r.get("source"),
+            }
+            for r in payload.get("exogenous_candidates", [])  # type: ignore
+            if isinstance(r, dict)
+        ],
+        "auto_candidate_dates": [
+            {
+                "date": r.get("date"),
+                "crisis_count": r.get("crisis_count"),
+            }
+            for r in payload.get("auto_candidates", [])  # type: ignore
+            if isinstance(r, dict)
+        ],
+        "shock_dates": payload.get("shock_dates", []),
+        "nonoverlap_keys": nonoverlap_keys,
+        "nonoverlap_dates": {k: payload.get(k, []) for k in nonoverlap_keys},
+    }
+
+
+def compute_catalog_signature(payload: dict) -> str:
+    return stable_payload_sha256(build_catalog_signature_payload(payload))
+
+
+def load_lock_signature(lock_path: Path) -> str:
+    if not lock_path.exists():  # type: ignore
+        return ""
+    try:
+        with lock_path.open("r", encoding="utf-8") as f:  # type: ignore
+            payload = json.load(f)  # type: ignore
+        return str(payload.get("catalog_signature_sha256", "") or "")
+    except Exception:
+        return ""
+
+
+def build_lock_payload(
+    catalog_signature: str,
+    policy: str,
+    lock_path: Path,
+    out_path: Path,
+    source_hashes: dict,
+    config: dict,
+) -> dict:
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
+        "schema": "shock_catalog_lock_v1",
+        "policy": policy,
+        "catalog_file": str(out_path),
+        "catalog_signature_sha256": catalog_signature,
+        "lock_file": str(lock_path),
+        "source_hashes": source_hashes,
+        "config": config,
+    }
 
 
 def _is_local_peak(series: Dict[str, float], day_iso: str, radius: int = 3) -> bool:
@@ -429,6 +540,7 @@ def project_treated_support(
 
 def main() -> None:
     args = parse_args()
+    lock_path = Path(str(args.lock_file or LOCK_FILE))  # type: ignore
     manual_dates = load_manual_crisis_dates(EVENTS_FILE)
     rows = read_panel_rows(PANEL_FILE, args.policy)
     exogenous_filter = parse_category_filter(args.exogenous_categories)
@@ -512,6 +624,13 @@ def main() -> None:
             effect_window_days=int(args.effect_window_days),
         )
 
+    exogenous_file_path = Path(str(args.exogenous_file or ""))
+    source_hashes = {
+        "events_v2_sha256": file_sha256(EVENTS_FILE),
+        "causal_panel_sha256": file_sha256(PANEL_FILE),
+        "exogenous_catalog_sha256": file_sha256(exogenous_file_path) if (not args.disable_exogenous) else "",
+    }
+
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),  # type: ignore
         "policy": args.policy,
@@ -520,6 +639,7 @@ def main() -> None:
             "causal_panel": str(PANEL_FILE),
             "exogenous_catalog": str(args.exogenous_file or ""),
         },
+        "source_hashes": source_hashes,
         "config": {
             "peak_percentile": args.peak_percentile,
             "min_gap_days": args.min_gap_days,
@@ -557,8 +677,33 @@ def main() -> None:
     for key, profile in matrix.items():
         payload[key] = list(profile.get("shock_dates", []))  # type: ignore
 
+    catalog_signature = compute_catalog_signature(payload)
+    payload["catalog_signature_sha256"] = catalog_signature  # type: ignore
+
+    if args.enforce_lock:
+        locked_sig = load_lock_signature(lock_path)
+        if not locked_sig:
+            raise SystemExit(f"lock_missing_or_invalid: {lock_path}")
+        if locked_sig != catalog_signature:
+            raise SystemExit(
+                "catalog_signature_mismatch: "
+                f"expected={locked_sig}, got={catalog_signature}, lock_file={lock_path}"
+            )
+
     with OUT_FILE.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)  # type: ignore
+
+    if args.write_lock:
+        lock_payload = build_lock_payload(
+            catalog_signature=catalog_signature,
+            policy=str(args.policy),
+            lock_path=lock_path,
+            out_path=OUT_FILE,
+            source_hashes=source_hashes,
+            config=payload.get("config", {}) if isinstance(payload.get("config"), dict) else {},
+        )
+        with lock_path.open("w", encoding="utf-8") as f:
+            json.dump(lock_payload, f, ensure_ascii=False, indent=2)  # type: ignore
 
     print("=== Shock Catalog Builder ===")
     print(f"manual_dates: {len(manual_dates)}")
@@ -578,6 +723,9 @@ def main() -> None:
             f"ratio={p['treated_ratio_projection']:.6f}, "
             f"shortfall={p['treated_shortfall_projection']}"
         )
+    print(f"catalog_signature_sha256: {catalog_signature}")
+    if args.write_lock:
+        print(f"[锁定] {lock_path}")
     print(f"[输出] {OUT_FILE}")
 
 

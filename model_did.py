@@ -219,6 +219,47 @@ def _p_below(value: float | None, threshold: float) -> bool:
     return isinstance(value, (int, float)) and float(value) < float(threshold)
 
 
+def select_placebo_shock_days(
+    placebo_pool: List[date],  # type: ignore
+    n_days: int,
+    seed_offset: int = 0,
+) -> List[date]:
+    if n_days <= 0:
+        return []
+    candidates = sorted(set(placebo_pool))  # type: ignore
+    if len(candidates) <= n_days:
+        return candidates
+    rng = make_rng(SEED + 9973 + int(seed_offset))
+    return sorted(rng.sample(candidates, n_days))  # type: ignore
+
+
+def is_placebo_treatment_violation(
+    obs_window: dict,  # type: ignore
+    placebo_window: dict,  # type: ignore
+    min_effect: float,
+) -> tuple[bool, bool]:
+    """
+    返回 (violation, dominant)：
+    - violation: 伪处理出现“正向且边际显著(p<0.1)且超过最小效应阈值”
+    - dominant: 伪处理效应 >= 真实处理效应（仅在真实处理为正时）
+    """
+    if not isinstance(placebo_window, dict):
+        return False, False
+    if placebo_window.get("status") != "ok":
+        return False, False
+
+    pl_att = float(placebo_window.get("att", 0.0) or 0.0)
+    pl_sig = _p_below(placebo_window.get("p_value"), 0.1)
+    violation = bool(pl_att > float(min_effect) and pl_sig)
+
+    dominant = False
+    if isinstance(obs_window, dict) and obs_window.get("status") == "ok":
+        obs_att = float(obs_window.get("att", 0.0) or 0.0)
+        if obs_att > 0 and pl_att >= obs_att:
+            dominant = True
+    return violation, dominant
+
+
 # min_distance_to_shocks 已移至 utils.py
 
 
@@ -276,6 +317,10 @@ def main() -> None:
         "shock_sampling": "full",
         "windows": {},
         "negative_controls": {},
+        "placebo_treatment": {
+            "n_days": 0,
+            "windows": {},
+        },
         "gates": {
             "significant_positive_windows": 0,
             "negative_controls_available": False,
@@ -283,6 +328,10 @@ def main() -> None:
             "negative_control_violations": 0,
             "negative_control_borderline_positives": 0,
             "negative_control_min_effect": float(args.negative_control_min_effect),
+            "placebo_treatment_windows_estimated": 0,
+            "placebo_treatment_violations": 0,
+            "placebo_treatment_dominant_windows": 0,
+            "placebo_treatment_passed": False,
             "did_passed": False,
         },
     }
@@ -322,11 +371,33 @@ def main() -> None:
             shocks_for_estimation = downsample_dates_evenly(shocks, max_shocks)
             out["shock_days_used"] = len(shocks_for_estimation)  # type: ignore
             out["shock_sampling"] = "downsample_evenly" if len(shocks_for_estimation) < len(shocks) else "full"  # type: ignore
+            placebo_shocks = select_placebo_shock_days(
+                placebo_pool=placebo_pool,
+                n_days=len(shocks_for_estimation),
+                seed_offset=len(rows),
+            )
+            out["placebo_treatment"]["n_days"] = len(placebo_shocks)  # type: ignore
 
             sig_pos = 0
+            placebo_est = 0
+            placebo_viol = 0
+            placebo_dom = 0
             for w in WINDOWS:
                 wr = evaluate_window(ufo_series, shocks_for_estimation, placebo_pool, w)
                 out["windows"][str(w)] = wr  # type: ignore
+                placebo_wr = evaluate_window(ufo_series, placebo_shocks, placebo_pool, w)
+                out["placebo_treatment"]["windows"][str(w)] = placebo_wr  # type: ignore
+                if placebo_wr.get("status") == "ok":
+                    placebo_est += 1
+                is_viol, is_dom = is_placebo_treatment_violation(
+                    obs_window=wr,
+                    placebo_window=placebo_wr,
+                    min_effect=float(args.negative_control_min_effect),
+                )
+                if is_viol:
+                    placebo_viol += 1
+                if is_dom:
+                    placebo_dom += 1
                 if wr.get("status") == "ok" and wr.get("att", 0) > 0 and _p_below(wr.get("p_value"), 0.05):  # type: ignore
                     sig_pos += 1
 
@@ -354,7 +425,17 @@ def main() -> None:
                 out["gates"]["negative_controls_estimated"] = neg_est  # type: ignore
                 out["gates"]["negative_control_violations"] = neg_viol  # type: ignore
                 out["gates"]["negative_control_borderline_positives"] = neg_borderline  # type: ignore
-                out["gates"]["did_passed"] = sig_pos >= 1 and neg_viol == 0 and neg_est > 0  # type: ignore
+                out["gates"]["placebo_treatment_windows_estimated"] = int(placebo_est)  # type: ignore
+                out["gates"]["placebo_treatment_violations"] = int(placebo_viol)  # type: ignore
+                out["gates"]["placebo_treatment_dominant_windows"] = int(placebo_dom)  # type: ignore
+                placebo_gate_passed = placebo_est > 0 and placebo_viol == 0 and placebo_dom == 0
+                out["gates"]["placebo_treatment_passed"] = bool(placebo_gate_passed)  # type: ignore
+                out["gates"]["did_passed"] = (
+                    sig_pos >= 1
+                    and neg_viol == 0
+                    and neg_est > 0
+                    and placebo_gate_passed
+                )  # type: ignore
 
                 out["status"] = "ok" if neg_est > 0 else "pending"  # type: ignore
                 out["reason"] = "did_estimated" if neg_est > 0 else "negative_controls_insufficient"  # type: ignore

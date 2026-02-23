@@ -1,10 +1,15 @@
 {
-  "generated_at": "2026-02-23T08:36:16.468932+00:00",
+  "generated_at": "2026-02-23T08:46:52.199327+00:00",
   "policy": "strict-balanced",
   "source_files": {
     "events_v2": "/Volumes/Seagate/外星人事件/data/events_v2.json",
     "causal_panel": "/Volumes/Seagate/外星人事件/data/causal_panel.json",
     "exogenous_catalog": "/Volumes/Seagate/外星人事件/data/exogenous_shocks_us.json"
+  },
+  "source_hashes": {
+    "events_v2_sha256": "880e900cf07cdf9cb287562cb2b64b1b68e1669a040e94f0facd37278d4a462c",
+    "causal_panel_sha256": "9180a8e8b219f81020b818971bfb3cdbff334cba4669286d7a226eb9cbeed636",
+    "exogenous_catalog_sha256": "bf14edfc5b0627fbc95094b62a51dbd2f8abf312607341d5392a8d9899623d03"
   },
   "config": {
     "peak_percentile": 98.5,
@@ -1612,5 +1617,6 @@
     "2024-07-13",
     "2024-12-01",
     "2025-12-23"
-  ]
+  ],
+  "catalog_signature_sha256": "cd7e3a7591ced88498afa6a3ab0ec7ce67ef98f45fc4eca393c0b7db23928bd9"
 }

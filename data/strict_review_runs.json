@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-02-23T08:33:55.571547+00:00",
+  "updated_at": "2026-02-23T08:49:40.699484+00:00",
   "runs": [
     {
       "generated_at": "2026-02-22T11:29:47.614005+00:00",
@@ -2230,6 +2230,146 @@
         "latest_signature_match_generated_at": null,
         "history_runs_count_before_append": 31,
         "history_runs_count": 32
+      }
+    },
+    {
+      "generated_at": "2026-02-23T08:47:27.616670+00:00",
+      "research_level": "L1",
+      "decision": {
+        "verdict": "仅发现相关性或弱信号，因果证据不足",
+        "approval_status": "REJECTED",
+        "approval_level": "WEAK_SIGNAL",
+        "expected_policy": "strict-balanced",
+        "observed_policies": {
+          "scraped_policy": "strict-balanced",
+          "causal_policy": "strict-balanced",
+          "progress_policy": "strict-balanced"
+        }
+      },
+      "gates": {
+        "core_passed": false,
+        "falsification_passed": false,
+        "approval_gate_passed": false,
+        "sample_gates_passed": true,
+        "directional_gates_passed": false,
+        "continuity_gate_passed": true,
+        "source_gate_passed": true,
+        "dual_stable_passed": true,
+        "policy_consistency_passed": true,
+        "mechanism_gate_passed": true,
+        "reproducibility_passed": false,
+        "gate_map": {
+          "panel_sufficient": true,
+          "panel_observed_days>=180": true,
+          "panel_shocks>=5": true,
+          "panel_observed_ratio>=0.85": true,
+          ">=2_significant_windows": false,
+          "lead_lag_positive": false,
+          "reverse_not_dominant": true
+        }
+      },
+      "inference": {
+        "stage_a_temporal_association": true,
+        "stage_b_causal_identification": false,
+        "stage_c_strategic_mechanism": false,
+        "level": "TEMPORAL_ASSOCIATION_ONLY",
+        "conclusion": "仅观察到时序相关，因果识别闸门尚未通过。"
+      },
+      "meta": {
+        "signature": {
+          "approval_status": "REJECTED",
+          "approval_level": "WEAK_SIGNAL",
+          "core_passed": false,
+          "falsification_passed": false,
+          "policy_consistency_passed": true,
+          "did_passed": false,
+          "event_passed": false,
+          "synth_passed": true,
+          "causal_ml_passed": false,
+          "panel_observed_days": 12672,
+          "panel_shock_days": 58,
+          "dual_status": "stable",
+          "inference_level": "TEMPORAL_ASSOCIATION_ONLY"
+        },
+        "previous_signature_exists": true,
+        "previous_generated_at": "2026-02-23T08:33:55.568488+00:00",
+        "cross_day_repeat": false,
+        "same_day_repeat": true,
+        "same_day_prev_repro_passed": false,
+        "repro_signature_matches": 1,
+        "latest_signature_match_generated_at": "2026-02-23T08:33:55.568488+00:00",
+        "history_runs_count_before_append": 32,
+        "history_runs_count": 33
+      }
+    },
+    {
+      "generated_at": "2026-02-23T08:49:40.697301+00:00",
+      "research_level": "L1",
+      "decision": {
+        "verdict": "仅发现相关性或弱信号，因果证据不足",
+        "approval_status": "REJECTED",
+        "approval_level": "WEAK_SIGNAL",
+        "expected_policy": "strict-balanced",
+        "observed_policies": {
+          "scraped_policy": "strict-balanced",
+          "causal_policy": "strict-balanced",
+          "progress_policy": "strict-balanced"
+        }
+      },
+      "gates": {
+        "core_passed": false,
+        "falsification_passed": false,
+        "approval_gate_passed": false,
+        "sample_gates_passed": true,
+        "directional_gates_passed": false,
+        "continuity_gate_passed": true,
+        "source_gate_passed": true,
+        "dual_stable_passed": true,
+        "policy_consistency_passed": true,
+        "mechanism_gate_passed": true,
+        "reproducibility_passed": false,
+        "gate_map": {
+          "panel_sufficient": true,
+          "panel_observed_days>=180": true,
+          "panel_shocks>=5": true,
+          "panel_observed_ratio>=0.85": true,
+          ">=2_significant_windows": false,
+          "lead_lag_positive": false,
+          "reverse_not_dominant": true
+        }
+      },
+      "inference": {
+        "stage_a_temporal_association": true,
+        "stage_b_causal_identification": false,
+        "stage_c_strategic_mechanism": false,
+        "level": "TEMPORAL_ASSOCIATION_ONLY",
+        "conclusion": "仅观察到时序相关，因果识别闸门尚未通过。"
+      },
+      "meta": {
+        "signature": {
+          "approval_status": "REJECTED",
+          "approval_level": "WEAK_SIGNAL",
+          "core_passed": false,
+          "falsification_passed": false,
+          "policy_consistency_passed": true,
+          "did_passed": false,
+          "event_passed": false,
+          "synth_passed": true,
+          "causal_ml_passed": false,
+          "panel_observed_days": 12672,
+          "panel_shock_days": 58,
+          "dual_status": "stable",
+          "inference_level": "TEMPORAL_ASSOCIATION_ONLY"
+        },
+        "previous_signature_exists": true,
+        "previous_generated_at": "2026-02-23T08:47:27.616670+00:00",
+        "cross_day_repeat": false,
+        "same_day_repeat": true,
+        "same_day_prev_repro_passed": false,
+        "repro_signature_matches": 2,
+        "latest_signature_match_generated_at": "2026-02-23T08:47:27.616670+00:00",
+        "history_runs_count_before_append": 33,
+        "history_runs_count": 34
       }
     }
   ]

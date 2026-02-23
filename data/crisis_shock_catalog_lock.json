@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-02-23T08:46:38.261834+00:00",
+  "schema": "shock_catalog_lock_v1",
+  "policy": "strict-balanced",
+  "catalog_file": "/Volumes/Seagate/外星人事件/data/crisis_shock_catalog.json",
+  "catalog_signature_sha256": "cd7e3a7591ced88498afa6a3ab0ec7ce67ef98f45fc4eca393c0b7db23928bd9",
+  "lock_file": "/Volumes/Seagate/外星人事件/data/crisis_shock_catalog_lock.json",
+  "source_hashes": {
+    "events_v2_sha256": "880e900cf07cdf9cb287562cb2b64b1b68e1669a040e94f0facd37278d4a462c",
+    "causal_panel_sha256": "9180a8e8b219f81020b818971bfb3cdbff334cba4669286d7a226eb9cbeed636",
+    "exogenous_catalog_sha256": "bf14edfc5b0627fbc95094b62a51dbd2f8abf312607341d5392a8d9899623d03"
+  },
+  "config": {
+    "peak_percentile": 98.5,
+    "min_gap_days": 21,
+    "max_candidates": 80,
+    "exclude_near_manual_days": 14,
+    "nonoverlap_gap_days": 30,
+    "nonoverlap_gaps": [
+      30,
+      45,
+      60
+    ],
+    "exogenous_enabled": true,
+    "exogenous_category_filter": [],
+    "effect_lag_start": 1,
+    "effect_window_days": 7
+  }
+}
