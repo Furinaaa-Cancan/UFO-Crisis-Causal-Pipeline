@@ -337,6 +337,11 @@ def parse_args() -> argparse.Namespace:
         default=30,
         help="双档稳定性评审最少重叠天数（默认 30）",
     )
+    parser.add_argument(
+        "--shock-catalog-file",
+        default="",
+        help="可选冲击日目录（传递给 causal_analyzer）；为空则仅使用 events_v2 主轨",
+    )
     return parser.parse_args()
 
 
@@ -360,6 +365,8 @@ def main() -> None:
         ]
         if args.enforce_gate:
             cmd.append("--fail-on-reject")
+        if str(args.shock_catalog_file or "").strip():  # type: ignore
+            cmd.extend(["--shock-catalog-file", str(args.shock_catalog_file)])  # type: ignore
         run_cmd(cmd)
 
     rows = load_panel_rows(args.policy)

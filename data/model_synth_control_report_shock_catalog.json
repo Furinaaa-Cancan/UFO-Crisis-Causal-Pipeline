@@ -1,0 +1,37 @@
+{
+  "generated_at": "2026-02-23T01:29:25.384279+00:00",
+  "model": "synthetic_control_simplified",
+  "policy": "strict-balanced",
+  "status": "ok",
+  "reason": "synth_estimated_neutral_consistent",
+  "n_rows": 52812,
+  "countries": [
+    "Australia",
+    "Canada",
+    "UK",
+    "US"
+  ],
+  "weights": {
+    "Australia": 0.333333,
+    "Canada": 0.333333,
+    "UK": 0.333333
+  },
+  "metrics": {
+    "shock_days": 25,
+    "shock_threshold": null,
+    "shock_source": "shock_catalog_dates",
+    "att_gap": 0.0,
+    "p_value": 1.0,
+    "p_value_negative": 1.0,
+    "n_common_dates": 13203,
+    "n_pre_dates": 13003,
+    "n_post_dates": 175
+  },
+  "gates": {
+    "att_positive": false,
+    "p_value_significant": false,
+    "att_near_zero": true,
+    "no_significant_negative": true,
+    "synth_passed": true
+  }
+}

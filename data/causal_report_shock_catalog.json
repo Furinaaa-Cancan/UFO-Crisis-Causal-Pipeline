@@ -1,0 +1,141 @@
+{
+  "generated_at": "2026-02-23T01:29:17.673727+00:00",
+  "verdict": "仅发现相关性或弱信号，因果证据不足",
+  "approval": {
+    "status": "REJECTED",
+    "level": "WEAK_SIGNAL",
+    "reason": "样本达标但信号未通过严格因果门槛",
+    "gates": [
+      {
+        "name": "panel_sufficient",
+        "passed": true,
+        "detail": "样本充分"
+      },
+      {
+        "name": "panel_observed_days>=180",
+        "passed": true,
+        "detail": "observed_days=12672, span_days=13202"
+      },
+      {
+        "name": "panel_shocks>=5",
+        "passed": true,
+        "detail": "shocks=25, shock_source=shock_catalog_dates (语义主轨，门槛降为语义正确优先)"
+      },
+      {
+        "name": "panel_observed_ratio>=0.85",
+        "passed": true,
+        "detail": "observed_days=12672, span_days=13202, ratio=0.9599, max_missing_streak=21"
+      },
+      {
+        "name": ">=2_significant_windows",
+        "passed": false,
+        "detail": "approval_windows=[3, 7, 10], significant_windows=0"
+      },
+      {
+        "name": "lead_lag_positive",
+        "passed": false,
+        "detail": "best_positive_lag=1, best_positive_corr=0.5502, best_any_lag=0, best_any_corr=0.5909, lag0_corr=0.5909, lag0_dominant=True"
+      },
+      {
+        "name": "reverse_not_dominant",
+        "passed": true,
+        "detail": "approval_windows=[3, 7, 10], reverse_violations=0"
+      }
+    ]
+  },
+  "events_v2": {
+    "_warning": "人工筛选正向配对样本，存在严重选择偏差。以下统计数字（含p值）仅作描述性参考，不用于任何闸门判断或因果结论。",
+    "n_cases": 10,
+    "mean_gap": 40.9,
+    "mean_abs_gap": 40.9,
+    "within_30": 5,
+    "within_60": 9,
+    "positive_count": 10,
+    "negative_count": 0,
+    "p_abs_gap_descriptive_only": 0.0,
+    "p_within_30_descriptive_only": 0.0,
+    "p_within_60_descriptive_only": 0.0,
+    "p_direction_descriptive_only": 0.0009765625
+  },
+  "scraped": {
+    "policy": "strict-balanced",
+    "n_ufo": 8,
+    "n_crisis": 84,
+    "coverage_days": 5332,
+    "sufficient": false,
+    "reason": "样本不足：ufo=8 (<30)",
+    "window_results": {}
+  },
+  "panel": {
+    "policy": "strict-balanced",
+    "n_days": 13202,
+    "start_date": "1990-01-01",
+    "end_date": "2026-02-22",
+    "observed_days": 12672,
+    "missing_days": 530,
+    "observed_ratio": 0.9598545674897743,
+    "max_missing_streak": 21,
+    "n_shocks": 25,
+    "shock_threshold": 3443.25,
+    "sufficient": true,
+    "reason": "样本充分",
+    "control_metric": "control_density_accepted",
+    "shock_source": "shock_catalog_dates",
+    "best_lag": 0,
+    "best_corr": 0.5908903297691361,
+    "best_positive_lag": 1,
+    "best_positive_corr": 0.5501861480691425,
+    "lag0_corr": 0.5908903297691361,
+    "window_results": {
+      "3": {
+        "obs_effect_adjusted": -2.8936378055377565,
+        "obs_effect_raw": -39.32,
+        "reverse_effect_raw": -391.03133903133903,
+        "placebo_control_effect": -5.1371772,
+        "p_value_adjusted": 0.8666,
+        "p_value_raw": 0.95495
+      },
+      "7": {
+        "obs_effect_adjusted": -25.26948594954499,
+        "obs_effect_raw": -186.44,
+        "reverse_effect_raw": -3.5584045584045585,
+        "placebo_control_effect": -4.978100559999998,
+        "p_value_adjusted": 0.9974,
+        "p_value_raw": 0.99835
+      },
+      "10": {
+        "obs_effect_adjusted": -29.466353086923085,
+        "obs_effect_raw": -225.24,
+        "reverse_effect_raw": -360.5014245014245,
+        "placebo_control_effect": -0.966859839999995,
+        "p_value_adjusted": 0.99665,
+        "p_value_raw": 0.9981
+      },
+      "14": {
+        "obs_effect_adjusted": -42.30074164867812,
+        "obs_effect_raw": -300.16,
+        "reverse_effect_raw": 529.6951566951567,
+        "placebo_control_effect": 0.3140722800000077,
+        "p_value_adjusted": 0.9988,
+        "p_value_raw": 0.99875
+      },
+      "30": {
+        "obs_effect_adjusted": -17.644577186793956,
+        "obs_effect_raw": -88.44,
+        "reverse_effect_raw": 2499.534188034188,
+        "placebo_control_effect": 24.313250360000012,
+        "p_value_adjusted": 0.8695,
+        "p_value_raw": 0.7986
+      }
+    }
+  },
+  "runtime": {
+    "permutations": 20000,
+    "fast_mode": false
+  },
+  "notes": [
+    "events_v2 显示强时间聚集，但为人工筛选配对，存在选择偏差。",
+    "events_v2: p_abs=0, p_30=0, p_60=0, p_dir=0.0009766",
+    "实时样本不足：样本不足：ufo=8 (<30)"
+  ]
+}

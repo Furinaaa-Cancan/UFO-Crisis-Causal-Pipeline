@@ -1,0 +1,293 @@
+{
+  "generated_at": "2026-02-23T01:29:55.875102+00:00",
+  "decision": {
+    "verdict": "仅发现相关性或弱信号，因果证据不足",
+    "approval_status": "REJECTED",
+    "approval_level": "WEAK_SIGNAL",
+    "expected_policy": "strict-balanced",
+    "observed_policies": {
+      "scraped_policy": "strict-balanced",
+      "causal_policy": "strict-balanced",
+      "progress_policy": "strict-balanced"
+    }
+  },
+  "signals": {
+    "ufo_events_latest_window": 8,
+    "crisis_events_latest_window": 84,
+    "has_temporal_signal": true,
+    "verdict_has_correlation_phrase": true,
+    "dual_review_status": "stable",
+    "dual_overlap_days": 2809
+  },
+  "mechanism": {
+    "metrics": {
+      "ufo_events_total": 8,
+      "min_ufo_events_required": 8,
+      "official_involved_events": 1,
+      "official_primary_events": 1,
+      "official_primary_with_media_followup_events": 0,
+      "media_primary_with_official_secondary_events": 0,
+      "official_lead_events": 1,
+      "lag_observed_events_live": 0,
+      "official_lead_by_lag_events_live": 0,
+      "official_to_media_lag_days_mean_live": null,
+      "official_to_media_lag_days_q50_live": null,
+      "lag_observed_events": 1,
+      "official_lead_by_lag_events": 1,
+      "official_to_media_lag_days_mean": 5.0,
+      "official_to_media_lag_days_q50": 5.0,
+      "official_source_share": 0.125,
+      "official_primary_share": 0.125,
+      "pair_total": 7,
+      "pair_strict": 1,
+      "pair_proxy_strict": 3,
+      "pair_balanced": 3,
+      "pair_strict_nonnegative_lag_events": 1,
+      "pair_strict_positive_lag_events": 1,
+      "pair_proxy_strict_positive_lag_events": 2,
+      "pair_lag_observed_events": 1,
+      "pair_lag_observed_events_strict_with_values": 1,
+      "pair_strict_lag_days_q50": 5.0,
+      "pair_resolved_publisher_events": 7,
+      "pair_official_events_with_strict_followup": 1,
+      "historical_ufo_events_total": 9,
+      "historical_government_action_events": 6,
+      "effective_ufo_events_total": 17,
+      "effective_official_events_total": 7,
+      "effective_official_share": 0.411765
+    },
+    "gates": {
+      "ufo_events>=8": true,
+      "official_share>=0.30": true,
+      "official_lead_events>=1": true
+    },
+    "lead_basis": "pair_strict_lag",
+    "mechanism_passed": true
+  },
+  "mechanism_sensitivity": {
+    "metric_snapshot": {
+      "effective_ufo_events_total": 17,
+      "effective_official_share": 0.411765,
+      "strict_lead_events": 1,
+      "proxy_positive_pairs": 2,
+      "source_order_proxy_events": 0
+    },
+    "profiles": [
+      {
+        "name": "strict_primary",
+        "description": "发布级结论：仅接受严格时序证据（lag / strict pair lag / source-order strict path）",
+        "thresholds": {
+          "min_ufo_events": 8,
+          "min_official_share": 0.3,
+          "min_official_lead_events": 1,
+          "lead_evidence_mode": "strict_only"
+        },
+        "derived_lead_events": 1,
+        "gates": {
+          "effective_ufo_events>=8": true,
+          "effective_official_share>=0.30": true,
+          "lead_events(strict_only)>=1": true
+        },
+        "passed": true
+      },
+      {
+        "name": "balanced_proxy",
+        "description": "研究级：允许 proxy_strict_positive 作为临时机制证据",
+        "thresholds": {
+          "min_ufo_events": 6,
+          "min_official_share": 0.2,
+          "min_official_lead_events": 1,
+          "lead_evidence_mode": "strict_or_proxy"
+        },
+        "derived_lead_events": 2,
+        "gates": {
+          "effective_ufo_events>=6": true,
+          "effective_official_share>=0.20": true,
+          "lead_events(strict_or_proxy)>=1": true
+        },
+        "passed": true
+      },
+      {
+        "name": "exploratory_proxy",
+        "description": "探索级：降低样本/占比门槛，并允许 proxy/source-order 辅助证据",
+        "thresholds": {
+          "min_ufo_events": 4,
+          "min_official_share": 0.1,
+          "min_official_lead_events": 1,
+          "lead_evidence_mode": "strict_proxy_or_source_order"
+        },
+        "derived_lead_events": 2,
+        "gates": {
+          "effective_ufo_events>=4": true,
+          "effective_official_share>=0.10": true,
+          "lead_events(strict_proxy_or_source_order)>=1": true
+        },
+        "passed": true
+      }
+    ],
+    "assessment": {
+      "strict_profile_passed": true,
+      "relaxed_profiles_passed_count": 2,
+      "relaxed_profiles_passed_names": [
+        "balanced_proxy",
+        "exploratory_proxy"
+      ],
+      "strictness_judgement": "not_over_strict",
+      "interpretation": "严格档已通过，当前评审强度不是主要瓶颈。"
+    }
+  },
+  "mechanism_historical": {
+    "status": "ok",
+    "metrics": {
+      "ufo_events_total": 9,
+      "government_action_events": 6,
+      "government_action_share": 0.666667,
+      "positive_gap_events": 9,
+      "positive_gap_share": 1.0,
+      "government_action_and_positive_gap_events": 6,
+      "confidence_counts": {
+        "HIGH": 6,
+        "MEDIUM": 3
+      }
+    },
+    "notes": [
+      "historical_mechanism 来自 events_v2（仅 USA/US 案例）",
+      "government_action 表示事件本身含官方动作，不等同于官方先发媒体滞后证据"
+    ]
+  },
+  "quality": {
+    "source_availability_rate": 1.0,
+    "source_failed_count": 0,
+    "source_total_active": 42,
+    "source_allowed_failed_threshold": 4,
+    "panel_status": "REJECTED",
+    "panel_progress_status": "ready_for_strict_approval",
+    "panel_observed_days": 12672,
+    "panel_shock_days": 25,
+    "panel_observed_ratio": 0.959855,
+    "panel_max_missing_streak": 21,
+    "panel_progress_observed_days": 12672,
+    "panel_progress_shock_days": 705,
+    "panel_progress_observed_ratio": 0.9599,
+    "panel_progress_max_missing_streak": 21,
+    "models": {
+      "did_status": "ok",
+      "did_passed": false,
+      "did_negative_controls_available": true,
+      "event_status": "ok",
+      "event_passed": false,
+      "synth_status": "ok",
+      "synth_passed": true,
+      "causal_ml_status": "ok",
+      "causal_ml_passed": false,
+      "causal_ml_dependency_ready": true
+    },
+    "official_lead_diagnostics": {
+      "available": true,
+      "summary": {
+        "total_ufo_events": 8,
+        "with_official_source": 1,
+        "with_media_source": 7,
+        "with_lag_days": 0,
+        "with_lag_hours": 0,
+        "official_leads_nonnegative_day_events": 0,
+        "official_lead_strict_candidates": 0,
+        "top_blockers": [
+          {
+            "reason": "no_official_source_in_timeline",
+            "count": 7
+          },
+          {
+            "reason": "no_media_source_in_timeline",
+            "count": 1
+          }
+        ]
+      }
+    },
+    "official_media_pairs": {
+      "available": true,
+      "summary": {
+        "official_items_considered": 2,
+        "media_items_considered": 54,
+        "dropped_low_score_items": 19,
+        "max_lag_days": 30,
+        "min_semantic_score": 2,
+        "min_base_score": 50,
+        "total_pairs": 7,
+        "strict_pairs": 1,
+        "proxy_strict_pairs": 3,
+        "balanced_pairs": 3,
+        "exploratory_pairs": 0,
+        "strict_nonnegative_lag_pairs": 1,
+        "strict_positive_lag_pairs": 1,
+        "strict_with_timestamp_pairs": 1,
+        "proxy_strict_positive_lag_pairs": 2,
+        "strict_upgraded_from_proxy_pairs": 1,
+        "pairs_with_resolved_publisher": 7,
+        "official_events_with_strict_followup": 1,
+        "top_blockers": []
+      }
+    }
+  },
+  "gates": {
+    "core_passed": false,
+    "falsification_passed": false,
+    "approval_gate_passed": false,
+    "sample_gates_passed": true,
+    "directional_gates_passed": false,
+    "continuity_gate_passed": true,
+    "source_gate_passed": true,
+    "dual_stable_passed": true,
+    "policy_consistency_passed": true,
+    "mechanism_gate_passed": true,
+    "reproducibility_passed": true,
+    "gate_map": {
+      "panel_sufficient": true,
+      "panel_observed_days>=180": true,
+      "panel_shocks>=5": true,
+      "panel_observed_ratio>=0.85": true,
+      ">=2_significant_windows": false,
+      "lead_lag_positive": false,
+      "reverse_not_dominant": true
+    }
+  },
+  "inference": {
+    "stage_a_temporal_association": true,
+    "stage_b_causal_identification": false,
+    "stage_c_strategic_mechanism": false,
+    "level": "TEMPORAL_ASSOCIATION_ONLY",
+    "conclusion": "仅观察到时序相关，因果识别闸门尚未通过。"
+  },
+  "meta": {
+    "signature": {
+      "approval_status": "REJECTED",
+      "approval_level": "WEAK_SIGNAL",
+      "core_passed": false,
+      "falsification_passed": false,
+      "policy_consistency_passed": true,
+      "did_passed": false,
+      "event_passed": false,
+      "synth_passed": true,
+      "causal_ml_passed": false,
+      "panel_observed_days": 12672,
+      "panel_shock_days": 25,
+      "dual_status": "stable",
+      "inference_level": "TEMPORAL_ASSOCIATION_ONLY"
+    },
+    "previous_signature_exists": true,
+    "previous_generated_at": "2026-02-22T15:45:04.264393+00:00",
+    "cross_day_repeat": true,
+    "same_day_repeat": false,
+    "same_day_prev_repro_passed": false,
+    "repro_signature_matches": 1,
+    "latest_signature_match_generated_at": "2026-02-22T15:43:30.043808+00:00",
+    "history_runs_count_before_append": 20,
+    "history_runs_count": 21
+  },
+  "research_level": "L1",
+  "next_actions": [
+    "优先补齐历史面板与冲击日样本，先过因果识别闸门。",
+    "持续跑 DID/事件研究/合成控制/Causal ML，并执行安慰剂与反向因果检验。",
+    "因果闸门未通过前，禁止使用“故意引导”表述。"
+  ]
+}

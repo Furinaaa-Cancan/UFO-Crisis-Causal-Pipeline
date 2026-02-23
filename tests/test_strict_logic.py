@@ -151,6 +151,85 @@ class TestStrictLogic(unittest.TestCase):
         self.assertEqual(causal_analyzer.compute_shock_threshold([1.0, 1.0, 1.0]), 2.0)
         self.assertEqual(panel_pipeline.compute_shock_threshold([]), 2.0)
 
+    def test_model_did_select_shock_days_prefers_catalog(self):
+        start = model_did.parse_date("2020-01-01")
+        end = model_did.parse_date("2020-02-10")
+        crisis_series = {
+            (start + timedelta(days=i)): float((i % 4) + 1)
+            for i in range((end - start).days + 1)
+        }
+        catalog_dates = [
+            "2020-01-05",
+            "2020-01-10",
+            "2020-01-15",
+            "2020-01-20",
+            "2020-01-25",
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            events_path = Path(tmp) / "events_v2.json"
+            events_path.write_text(json.dumps({"correlations": []}, ensure_ascii=False), encoding="utf-8")
+
+            catalog_path = Path(tmp) / "crisis_shock_catalog.json"
+            catalog_path.write_text(json.dumps({"shock_dates": catalog_dates}, ensure_ascii=False), encoding="utf-8")
+
+            shocks, threshold, source = model_did.select_shock_days(
+                crisis_series,
+                start,
+                end,
+                events_path=events_path,
+                shock_catalog_path=catalog_path,
+            )
+
+        self.assertEqual(source, "shock_catalog_dates")
+        self.assertIsNone(threshold)
+        self.assertEqual([d.isoformat() for d in shocks], catalog_dates)
+
+    def test_model_synth_load_us_shock_days_prefers_catalog(self):
+        panel_rows = []
+        d0 = model_synth_control.parse_date("2021-01-01")
+        for i in range(40):
+            day = d0 + timedelta(days=i)
+            panel_rows.append(
+                {
+                    "date": day.isoformat(),
+                    "policy": "strict-balanced",
+                    "ufo_count": 1,
+                    "crisis_count": 2 if i % 3 == 0 else 1,
+                    "date_scope": "run_day_only",
+                }
+            )
+
+        catalog_dates = [
+            "2021-01-03",
+            "2021-01-08",
+            "2021-01-13",
+            "2021-01-18",
+            "2021-01-23",
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            panel_path = Path(tmp) / "causal_panel.json"
+            panel_path.write_text(json.dumps({"rows": panel_rows}, ensure_ascii=False), encoding="utf-8")
+            catalog_path = Path(tmp) / "crisis_shock_catalog.json"
+            catalog_path.write_text(json.dumps({"shock_dates": catalog_dates}, ensure_ascii=False), encoding="utf-8")
+
+            old_panel_file = model_synth_control.PANEL_FILE
+            model_synth_control.PANEL_FILE = panel_path
+            try:
+                shocks, threshold, source = model_synth_control.load_us_shock_days(
+                    policy="strict-balanced",
+                    start=d0,
+                    end=d0 + timedelta(days=39),
+                    shock_catalog_path=catalog_path,
+                )
+            finally:
+                model_synth_control.PANEL_FILE = old_panel_file
+
+        self.assertEqual(source, "shock_catalog_dates")
+        self.assertIsNone(threshold)
+        self.assertEqual([d.isoformat() for d in shocks], catalog_dates)
+
     def test_did_min_distance_handles_empty_shocks(self):
         d = causal_analyzer.parse_date("2026-02-21")
         self.assertGreater(model_did.min_distance_to_shocks(d, []), 1000)

@@ -1,0 +1,110 @@
+{
+  "generated_at": "2026-02-23T01:29:18.622424+00:00",
+  "model": "window_mean_diff_permutation_test",
+  "policy": "strict-balanced",
+  "observed_days": 12672,
+  "status": "ok",
+  "reason": "did_estimated",
+  "shock_threshold": null,
+  "shock_source": "shock_catalog_dates",
+  "shock_days": 25,
+  "shock_days_used": 25,
+  "shock_sampling": "full",
+  "windows": {
+    "7": {
+      "status": "ok",
+      "reason": "estimated",
+      "att": -22.655736,
+      "p_value": 0.99,
+      "ci95": [
+        -13.933442,
+        13.161769
+      ],
+      "n_obs_events": 22,
+      "n_null": 2000
+    },
+    "14": {
+      "status": "ok",
+      "reason": "estimated",
+      "att": -12.051436,
+      "p_value": 0.987,
+      "ci95": [
+        -8.578964,
+        11.161101
+      ],
+      "n_obs_events": 25,
+      "n_null": 2000
+    },
+    "30": {
+      "status": "ok",
+      "reason": "estimated",
+      "att": -2.774033,
+      "p_value": 0.8385,
+      "ci95": [
+        -7.550703,
+        7.214552
+      ],
+      "n_obs_events": 25,
+      "n_null": 2000
+    }
+  },
+  "negative_controls": {
+    "entertainment": {
+      "status": "ok",
+      "reason": "estimated",
+      "att": 0.005714,
+      "p_value": 0.062,
+      "ci95": [
+        -0.005714,
+        0.005714
+      ],
+      "n_obs_events": 25,
+      "n_null": 2000
+    },
+    "sports": {
+      "status": "ok",
+      "reason": "estimated",
+      "att": 0.0,
+      "p_value": 0.9275,
+      "ci95": [
+        -0.011429,
+        0.011429
+      ],
+      "n_obs_events": 25,
+      "n_null": 2000
+    },
+    "technology": {
+      "status": "ok",
+      "reason": "estimated",
+      "att": -0.011429,
+      "p_value": 0.974,
+      "ci95": [
+        -0.017143,
+        0.028619
+      ],
+      "n_obs_events": 25,
+      "n_null": 2000
+    },
+    "weather": {
+      "status": "ok",
+      "reason": "estimated",
+      "att": 0.0,
+      "p_value": 0.959,
+      "ci95": [
+        -0.011429,
+        0.011429
+      ],
+      "n_obs_events": 25,
+      "n_null": 2000
+    }
+  },
+  "gates": {
+    "significant_positive_windows": 0,
+    "negative_controls_available": true,
+    "negative_controls_estimated": 4,
+    "negative_control_violations": 0,
+    "negative_control_borderline_positives": 1,
+    "negative_control_min_effect": 0.05,
+    "did_passed": false
+  }
+}

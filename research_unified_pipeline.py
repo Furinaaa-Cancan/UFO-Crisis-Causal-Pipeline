@@ -47,6 +47,11 @@ def parse_args() -> argparse.Namespace:
         default=-1,
         help="<=0 自动按 causal_panel 全时段构建对照面板；>0 使用回看天数",
     )
+    p.add_argument(
+        "--shock-catalog-file",
+        default="",
+        help="可选冲击日目录（传给 panel_pipeline 与模型）；为空则仅使用 events_v2 主轨",
+    )
     return p.parse_args()
 
 
@@ -77,6 +82,8 @@ def main() -> None:
             cmd.append("--skip-scrape")
         if args.skip_causal:
             cmd.append("--skip-causal")
+        if str(args.shock_catalog_file or "").strip():  # type: ignore
+            cmd.extend(["--shock-catalog-file", str(args.shock_catalog_file)])  # type: ignore
         code = run_cmd(cmd)
         if code != 0:
             raise SystemExit(code)
@@ -99,7 +106,10 @@ def main() -> None:
             "model_synth_control.py",
             "model_causal_ml.py",
         ):
-            code = run_cmd([py, script, "--policy", model_policy])
+            cmd = [py, script, "--policy", model_policy]
+            if str(args.shock_catalog_file or "").strip():  # type: ignore
+                cmd.extend(["--shock-catalog-file", str(args.shock_catalog_file)])  # type: ignore
+            code = run_cmd(cmd)
             if code != 0:
                 raise SystemExit(code)
 

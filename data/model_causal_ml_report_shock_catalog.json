@@ -1,0 +1,74 @@
+{
+  "generated_at": "2026-02-23T01:29:27.870039+00:00",
+  "model": "causal_ml_orthogonal_forest",
+  "policy": "strict-balanced",
+  "observed_days": 12672,
+  "status": "ok",
+  "reason": "causal_ml_estimated_but_gate_not_met",
+  "dependencies": {
+    "sklearn_ready": true,
+    "sklearn_error": ""
+  },
+  "sample": {
+    "n_rows": 12672,
+    "n_samples_for_ml": 11770,
+    "shock_threshold": null,
+    "shock_source": "shock_catalog_dates",
+    "shock_days": 15,
+    "shock_days_defined": 25,
+    "treated_ratio": 0.001274,
+    "effect_lag_start": 1,
+    "effect_window_days": 7,
+    "n_features": 16,
+    "feature_names": [
+      "ufo_lag1",
+      "ufo_lag2",
+      "ufo_lag3",
+      "ufo_lag7",
+      "crisis_lag1",
+      "crisis_lag2",
+      "crisis_lag3",
+      "crisis_lag7",
+      "control_total_t",
+      "control_total_lag1",
+      "control_density_t",
+      "control_density_lag1",
+      "weekday_sin",
+      "weekday_cos",
+      "month_sin",
+      "month_cos"
+    ]
+  },
+  "estimation": {
+    "nuisance_method": "cross_fitted_rf",
+    "cate_method": "orthogonal_random_forest_proxy",
+    "orthogonal_ate": 0.491669,
+    "orthogonal_att": -10.792008,
+    "ate_p_value": 0.847076,
+    "ate_interval_note": "ate_placebo_null_ci95 is a placebo/null reference band, not an estimator confidence interval",
+    "ate_placebo_null_ci95": [
+      -3.569981,
+      4.383147
+    ],
+    "null_draws": 2000,
+    "cate_mean": 0.71224,
+    "cate_std_proxy": 171.721112,
+    "heterogeneity": {
+      "q33": 0.0,
+      "q67": 0.004841,
+      "top_mean": 72.852242,
+      "bottom_mean": -38.763784,
+      "spread_top_minus_bottom": 111.616026
+    },
+    "estimand": "E[ufo_count_(t+1..t+7) | do(shock_t=1)]"
+  },
+  "gates": {
+    "att_positive": false,
+    "ate_positive": true,
+    "ate_significant": false,
+    "nuisance_model_ready": true,
+    "cate_model_ready": true,
+    "heterogeneity_estimated": true,
+    "causal_ml_passed": false
+  }
+}

@@ -1,0 +1,151 @@
+{
+  "generated_at": "2026-02-23T01:28:44.745171+00:00",
+  "policy": "strict-balanced",
+  "source_files": {
+    "events_v2": "/Volumes/Seagate/外星人事件/data/events_v2.json",
+    "causal_panel": "/Volumes/Seagate/外星人事件/data/causal_panel.json"
+  },
+  "config": {
+    "peak_percentile": 98.5,
+    "min_gap_days": 21,
+    "max_candidates": 80,
+    "exclude_near_manual_days": 14
+  },
+  "summary": {
+    "manual_dates": 10,
+    "auto_candidates": 15,
+    "total_shock_dates": 25,
+    "auto_candidate_threshold_value": 8792.315000000006
+  },
+  "manual_shock_dates": [
+    "1997-05-27",
+    "2009-05-08",
+    "2017-12-01",
+    "2019-07-25",
+    "2020-03-13",
+    "2021-05-28",
+    "2023-01-09",
+    "2023-06-09",
+    "2024-12-01",
+    "2025-12-23"
+  ],
+  "auto_candidates": [
+    {
+      "date": "2017-01-11",
+      "crisis_count": 9138.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2017-05-18",
+      "crisis_count": 16069.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2017-10-30",
+      "crisis_count": 11335.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2018-01-26",
+      "crisis_count": 8942.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2018-04-10",
+      "crisis_count": 13712.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2018-06-05",
+      "crisis_count": 9429.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2018-08-22",
+      "crisis_count": 13412.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2018-11-07",
+      "crisis_count": 11242.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2019-02-27",
+      "crisis_count": 9631.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2019-03-25",
+      "crisis_count": 15452.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2019-04-18",
+      "crisis_count": 14223.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2019-05-29",
+      "crisis_count": 8804.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2019-09-25",
+      "crisis_count": 10722.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2019-12-19",
+      "crisis_count": 11119.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    },
+    {
+      "date": "2021-01-13",
+      "crisis_count": 8951.0,
+      "candidate_type": "panel_local_peak",
+      "peak_percentile_threshold": 98.5
+    }
+  ],
+  "shock_dates": [
+    "1997-05-27",
+    "2009-05-08",
+    "2017-01-11",
+    "2017-05-18",
+    "2017-10-30",
+    "2017-12-01",
+    "2018-01-26",
+    "2018-04-10",
+    "2018-06-05",
+    "2018-08-22",
+    "2018-11-07",
+    "2019-02-27",
+    "2019-03-25",
+    "2019-04-18",
+    "2019-05-29",
+    "2019-07-25",
+    "2019-09-25",
+    "2019-12-19",
+    "2020-03-13",
+    "2021-01-13",
+    "2021-05-28",
+    "2023-01-09",
+    "2023-06-09",
+    "2024-12-01",
+    "2025-12-23"
+  ]
+}

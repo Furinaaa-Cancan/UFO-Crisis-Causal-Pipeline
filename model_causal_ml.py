@@ -73,6 +73,11 @@ def parse_args() -> argparse.Namespace:
         default=7,
         help="处理发生后，结果窗口结束滞后天数（默认 t+7）",
     )
+    p.add_argument(
+        "--shock-catalog-file",
+        default="",
+        help="可选冲击日目录（json，含 shock_dates[]）；为空则仅使用 events_v2",
+    )
     return p.parse_args()
 
 
@@ -107,16 +112,44 @@ def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
         return []
 
 
+def _load_shock_catalog_dates(catalog_path: Path | None) -> List[date]:
+    if catalog_path is None or not catalog_path.exists():  # type: ignore
+        return []
+    try:
+        with catalog_path.open("r", encoding="utf-8") as f:  # type: ignore
+            payload = json.load(f)  # type: ignore
+        ds = payload.get("shock_dates", []) if isinstance(payload, dict) else []
+        out = []
+        for d in ds:  # type: ignore
+            if not isinstance(d, str):
+                continue
+            try:
+                out.append(parse_date(d))  # type: ignore
+            except Exception:
+                continue
+        return sorted(set(out))  # type: ignore
+    except Exception:
+        return []
+
+
 def select_shock_days(
     crisis_series: Dict[date, float],  # type: ignore
     start: date,
     end: date,
     events_path: Path = EVENTS_FILE,
+    shock_catalog_path: Path | None = None,
 ) -> tuple[List[date], float | None, str]:
-    ev2_dates = _load_events_v2_crisis_dates(events_path)
-    ev2_in_panel = [d for d in ev2_dates if start <= d <= end]
+    catalog_dates = _load_shock_catalog_dates(shock_catalog_path)
+    if catalog_dates:
+        base_dates = catalog_dates
+        base_source_name = "shock_catalog_dates"
+    else:
+        base_dates = _load_events_v2_crisis_dates(events_path)
+        base_source_name = "events_v2_crisis_dates"
+
+    ev2_in_panel = [d for d in base_dates if start <= d <= end]
     if len(ev2_in_panel) >= EV2_MIN_DATES:
-        return sorted(ev2_in_panel), None, "events_v2_crisis_dates"
+        return sorted(ev2_in_panel), None, base_source_name
 
     crisis_nonzero = [v for v in crisis_series.values() if v > 0]  # type: ignore
     thr75 = compute_shock_threshold(crisis_nonzero)
@@ -533,6 +566,10 @@ def compute_causal_ml_pass(
 
 def main() -> None:
     args = parse_args()
+    shock_catalog_path: Path | None = None
+    raw_catalog = str(args.shock_catalog_file or "").strip()  # type: ignore
+    if raw_catalog:
+        shock_catalog_path = Path(raw_catalog)  # type: ignore
     rows = load_rows(args.policy)
 
     out = {
@@ -589,7 +626,13 @@ def main() -> None:
     else:
         dates = [parse_date(r["date"]) for r in rows]  # type: ignore
         crisis_series = {parse_date(r["date"]): _safe_float(r.get("crisis_count", 0)) for r in rows}  # type: ignore
-        shocks_defined, threshold, shock_source = select_shock_days(crisis_series, min(dates), max(dates))
+        shocks_defined, threshold, shock_source = select_shock_days(
+            crisis_series,
+            min(dates),
+            max(dates),
+            events_path=EVENTS_FILE,
+            shock_catalog_path=shock_catalog_path,
+        )
         shock_set = set(shocks_defined)
         data, feature_names = build_dataset(
             rows,
@@ -609,7 +652,7 @@ def main() -> None:
         out["sample"]["feature_names"] = feature_names  # type: ignore
         out["sample"]["treated_ratio"] = (round(shock_days / float(len(data)), 6) if data else None)  # type: ignore
 
-        effective_min_shocks = EV2_MIN_DATES if shock_source == "events_v2_crisis_dates" else args.min_shock_days
+        effective_min_shocks = EV2_MIN_DATES if shock_source in ("events_v2_crisis_dates", "shock_catalog_dates") else args.min_shock_days
         if len(data) < args.min_observed_days:
             out["reason"] = f"n_samples_for_ml < {args.min_observed_days}，构造特征后样本不足"  # type: ignore
         elif shock_days < effective_min_shocks:

@@ -501,6 +501,26 @@ def _load_events_v2_crisis_dates(events_path: Path) -> List[date]:
         return []
 
 
+def _load_shock_catalog_dates(catalog_path: Path | None) -> List[date]:
+    if catalog_path is None or not catalog_path.exists():  # type: ignore
+        return []
+    try:
+        with catalog_path.open("r", encoding="utf-8") as f:  # type: ignore
+            payload = json.load(f)  # type: ignore
+        ds = payload.get("shock_dates", []) if isinstance(payload, dict) else []
+        out = []
+        for d in ds:  # type: ignore
+            if not isinstance(d, str):
+                continue
+            try:
+                out.append(parse_date(d))  # type: ignore
+            except Exception:
+                continue
+        return sorted(set(out))  # type: ignore
+    except Exception:
+        return []
+
+
 def analyze_panel(  # type: ignore
     panel_path: Path,
     prefer_policy: str,
@@ -509,6 +529,7 @@ def analyze_panel(  # type: ignore
     min_observed_ratio: float = 0.8,
     permutations: int = PERMUTATIONS,
     events_v2_path: Path | None = None,
+    shock_catalog_path: Path | None = None,
 ) -> PanelStats:
     panel = load_panel(panel_path)  # type: ignore
     policy, rows = _select_panel_rows(panel, prefer_policy)  # type: ignore
@@ -601,11 +622,18 @@ def analyze_panel(  # type: ignore
     # 主轨：events_v2 真实危机日期（语义正确，但数量少）
     # 辅轨：高新闻量日（75百分位，数量多但语义为"高新闻量日"而非"政治危机日"）
     # 优先使用主轨；若主轨在面板覆盖范围内的日期 < min_shocks，则回退辅轨并标注
-    ev2_crisis_dates: List[date] = []
-    if events_v2_path is not None:
-        ev2_crisis_dates = _load_events_v2_crisis_dates(events_v2_path)
-    # 只保留在面板覆盖范围内的 events_v2 危机日期
-    ev2_in_panel = [d for d in ev2_crisis_dates if start <= d <= end]
+    catalog_dates = _load_shock_catalog_dates(shock_catalog_path)
+    if catalog_dates:
+        primary_dates = catalog_dates
+        primary_source_name = "shock_catalog_dates"
+    else:
+        ev2_crisis_dates: List[date] = []
+        if events_v2_path is not None:
+            ev2_crisis_dates = _load_events_v2_crisis_dates(events_v2_path)
+        primary_dates = ev2_crisis_dates
+        primary_source_name = "events_v2_crisis_dates"
+    # 只保留在面板覆盖范围内的主轨危机日期
+    ev2_in_panel = [d for d in primary_dates if start <= d <= end]
 
     shock_threshold = compute_shock_threshold(crisis_nonzero)
     news_volume_shock_days = [d for d, v in crisis_series.items() if v >= shock_threshold]  # type: ignore
@@ -614,7 +642,7 @@ def analyze_panel(  # type: ignore
     # min_shocks 是统计功效门槛，不应阻止语义正确的冲击日被使用
     if len(ev2_in_panel) >= EV2_MIN_DATES:
         shock_days = ev2_in_panel
-        shock_source = "events_v2_crisis_dates"
+        shock_source = primary_source_name
     else:
         # 回退：使用90百分位（比原75百分位更严格）以减少误报
         shock_threshold_90 = compute_shock_threshold(crisis_nonzero, q=90.0)
@@ -626,7 +654,7 @@ def analyze_panel(  # type: ignore
     n_shocks = len(shock_days)
 
     # 当使用 events_v2 主轨时，冲击日门槛降为 EV2_MIN_DATES（语义正确优先于数量）
-    effective_min_shocks = EV2_MIN_DATES if shock_source == "events_v2_crisis_dates" else min_shocks
+    effective_min_shocks = EV2_MIN_DATES if shock_source in ("events_v2_crisis_dates", "shock_catalog_dates") else min_shocks
 
     if observed_days < min_days or n_shocks < effective_min_shocks or observed_ratio < min_observed_ratio:
         reasons = []
@@ -829,8 +857,8 @@ def run_strict_approval(
     )
 
     # 当使用 events_v2 主轨时，冲击日门槛降为 EV2_MIN_DATES
-    effective_min_shocks = EV2_MIN_DATES if panel_stats.shock_source == "events_v2_crisis_dates" else min_shocks
-    ev2_shocks_note = " (events_v2主轨，门槛降为语义正确优先)" if panel_stats.shock_source == "events_v2_crisis_dates" else ""
+    effective_min_shocks = EV2_MIN_DATES if panel_stats.shock_source in ("events_v2_crisis_dates", "shock_catalog_dates") else min_shocks
+    ev2_shocks_note = " (语义主轨，门槛降为语义正确优先)" if panel_stats.shock_source in ("events_v2_crisis_dates", "shock_catalog_dates") else ""
     gates.append(
         ApprovalGate(
             name=f"panel_shocks>={int(effective_min_shocks)}",
@@ -1052,6 +1080,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=f"快速模式：自动把置换次数上限限制到 {FAST_MODE_PERMUTATIONS}",
     )
+    parser.add_argument(
+        "--shock-catalog-file",
+        default="",
+        help="可选冲击日目录（json，含 shock_dates[]）；为空则仅使用 events_v2 主轨",
+    )
     return parser.parse_args()
 
 
@@ -1060,6 +1093,11 @@ def main() -> None:
     permutations = max(200, int(args.permutations))
     if args.fast_mode:
         permutations = min(permutations, FAST_MODE_PERMUTATIONS)
+
+    shock_catalog_path: Path | None = None
+    raw_catalog = str(args.shock_catalog_file or "").strip()  # type: ignore
+    if raw_catalog:
+        shock_catalog_path = Path(raw_catalog)  # type: ignore
 
     if not SCRAPED_FILE.exists():  # type: ignore
         print(f"[错误] 找不到 {SCRAPED_FILE}，请先运行 scraper.py")  # type: ignore
@@ -1086,6 +1124,7 @@ def main() -> None:
         min_observed_ratio=args.min_panel_observed_ratio,
         permutations=permutations,
         events_v2_path=EVENTS_FILE,
+        shock_catalog_path=shock_catalog_path,
     )
     verdict, notes = summarize_causal_verdict(events_stats, scraped_stats, panel_stats)
     approval = run_strict_approval(
