@@ -12,6 +12,7 @@ import model_event_study
 import model_causal_ml
 import model_synth_control
 import panel_pipeline
+import research_unified_pipeline
 import historical_backfill
 import replay_backfill_failures
 import scraper
@@ -463,6 +464,44 @@ class TestStrictLogic(unittest.TestCase):
         sig_a = shock_catalog_builder.compute_catalog_signature(payload_a)
         sig_b = shock_catalog_builder.compute_catalog_signature(payload_b)
         self.assertNotEqual(sig_a, sig_b)
+
+    def test_research_pipeline_validate_shock_catalog_lock_ok(self):
+        catalog = {
+            "catalog_signature_sha256": "abc",
+            "shock_dates_nonoverlap_30d": ["2020-01-01"],
+        }
+        lock = {"catalog_signature_sha256": "abc"}
+        with tempfile.TemporaryDirectory() as tmp:
+            c = Path(tmp) / "catalog.json"
+            l = Path(tmp) / "lock.json"
+            c.write_text(json.dumps(catalog, ensure_ascii=False), encoding="utf-8")
+            l.write_text(json.dumps(lock, ensure_ascii=False), encoding="utf-8")
+            ok, reason = research_unified_pipeline.validate_shock_catalog_lock(
+                catalog_path=c,
+                lock_path=l,
+                shock_catalog_key="shock_dates_nonoverlap_30d",
+            )
+        self.assertTrue(ok)
+        self.assertEqual(reason, "ok")
+
+    def test_research_pipeline_validate_shock_catalog_lock_mismatch(self):
+        catalog = {
+            "catalog_signature_sha256": "abc",
+            "shock_dates_nonoverlap_30d": ["2020-01-01"],
+        }
+        lock = {"catalog_signature_sha256": "xyz"}
+        with tempfile.TemporaryDirectory() as tmp:
+            c = Path(tmp) / "catalog.json"
+            l = Path(tmp) / "lock.json"
+            c.write_text(json.dumps(catalog, ensure_ascii=False), encoding="utf-8")
+            l.write_text(json.dumps(lock, ensure_ascii=False), encoding="utf-8")
+            ok, reason = research_unified_pipeline.validate_shock_catalog_lock(
+                catalog_path=c,
+                lock_path=l,
+                shock_catalog_key="shock_dates_nonoverlap_30d",
+            )
+        self.assertFalse(ok)
+        self.assertIn("signature_mismatch", reason)
 
     def test_collect_paged_source_urls_builds_expected_range(self):
         src = {

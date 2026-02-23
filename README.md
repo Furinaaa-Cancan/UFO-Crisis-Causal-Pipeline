@@ -334,6 +334,7 @@ python strict_reviewer.py \
 > 注意：`model_did.py` 现包含“伪处理（placebo treatment）”双安慰剂审计：`placebo_treatment.windows` 与对应 gates 会约束 `did_passed`，防止偶然显著放行。
 > 注意：`model_did.py` / `model_event_study.py` / `model_synth_control.py` / `model_causal_ml.py` 默认采用 `events_v2_crisis_dates` 作为冲击日主轨（>=5 日时）；当显式传入 `--shock-catalog-file` 时会切换到 `shock_catalog_dates` 主轨。若主轨不足则回退新闻量阈值，并在报告写出 `shock_source` 审计字段。
 > 注意：`strict_reviewer.py` 在 `panel_shock_source=shock_catalog_dates` 时会强制校验 `crisis_shock_catalog.json` 与 `crisis_shock_catalog_lock.json` 的签名一致性（`shock_catalog_lock_passed`）。
+> 注意：`research_unified_pipeline.py` 在传入 `--shock-catalog-file` 时，默认先做锁一致性 fail-fast 校验；仅探索场景可用 `--skip-shock-lock-check` 跳过。
 > 注意：当使用 `--skip-scrape` 时，统一管道会让 `control_panel_builder.py` 自动 `--skip-countries`，
 > 以避免触发国家 RSS 联网抓取，保证离线/复现语义一致。
 > 注意：当使用 `--skip-causal` 时，`panel_pipeline.py` 会自动刷新一次 `causal_report`（`--no-update-panel`）以保持严格评审口径一致；若同时传入 `--shock-catalog-file/--shock-catalog-key`，会按该冲击口径刷新。
@@ -379,6 +380,12 @@ python shock_catalog_builder.py --policy strict-balanced --enforce-lock
 python research_unified_pipeline.py --skip-scrape --skip-causal --only-policy strict-balanced \
   --shock-catalog-file data/crisis_shock_catalog.json \
   --shock-catalog-key shock_dates_nonoverlap_30d
+
+# 若只做探索并故意跳过锁校验（不建议用于正式结论）
+python research_unified_pipeline.py --skip-scrape --skip-causal --only-policy strict-balanced \
+  --shock-catalog-file data/crisis_shock_catalog.json \
+  --shock-catalog-key shock_dates_nonoverlap_30d \
+  --skip-shock-lock-check
 ```
 
 说明：

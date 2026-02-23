@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,48 @@ def run_cmd(cmd: list[str]) -> int:
     print(f"[run] {' '.join(cmd)}")
     proc = subprocess.run(cmd, cwd=BASE_DIR)
     return proc.returncode
+
+
+def validate_shock_catalog_lock(
+    catalog_path: Path,
+    lock_path: Path,
+    shock_catalog_key: str,
+) -> tuple[bool, str]:
+    if not catalog_path.exists():  # type: ignore
+        return False, f"catalog_missing:{catalog_path}"
+    if not lock_path.exists():  # type: ignore
+        return False, f"lock_missing:{lock_path}"
+
+    try:
+        with catalog_path.open("r", encoding="utf-8") as f:  # type: ignore
+            catalog = json.load(f)  # type: ignore
+    except Exception as e:
+        return False, f"catalog_invalid_json:{e}"
+    try:
+        with lock_path.open("r", encoding="utf-8") as f:  # type: ignore
+            lock = json.load(f)  # type: ignore
+    except Exception as e:
+        return False, f"lock_invalid_json:{e}"
+
+    if not isinstance(catalog, dict):
+        return False, "catalog_not_object"
+    if not isinstance(lock, dict):
+        return False, "lock_not_object"
+
+    catalog_sig = str(catalog.get("catalog_signature_sha256", "") or "")
+    lock_sig = str(lock.get("catalog_signature_sha256", "") or "")
+    if not catalog_sig:
+        return False, "catalog_signature_missing"
+    if not lock_sig:
+        return False, "lock_signature_missing"
+    if catalog_sig != lock_sig:
+        return False, f"signature_mismatch:catalog={catalog_sig},lock={lock_sig}"
+
+    key = str(shock_catalog_key or "shock_dates").strip() or "shock_dates"
+    if key not in catalog:
+        # 不允许静默回退，避免用错冲击键还继续跑。
+        return False, f"shock_catalog_key_missing:{key}"
+    return True, "ok"
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,6 +100,16 @@ def parse_args() -> argparse.Namespace:
         default="shock_dates",
         help="冲击目录字段名（默认 shock_dates；可切到 shock_dates_nonoverlap_30d 等）",
     )
+    p.add_argument(
+        "--shock-lock-file",
+        default="data/crisis_shock_catalog_lock.json",
+        help="冲击目录锁文件路径（默认 data/crisis_shock_catalog_lock.json）",
+    )
+    p.add_argument(
+        "--skip-shock-lock-check",
+        action="store_true",
+        help="跳过冲击目录锁一致性检查（仅探索场景）",
+    )
     return p.parse_args()
 
 
@@ -66,6 +119,22 @@ def main() -> None:
 
     policies = [args.only_policy] if args.only_policy else ["strict", "strict-balanced"]
     model_policy = args.model_policy or args.only_policy or "strict-balanced"
+
+    shock_catalog_raw = str(args.shock_catalog_file or "").strip()  # type: ignore
+    if shock_catalog_raw and not args.skip_shock_lock_check:  # type: ignore
+        lock_raw = str(args.shock_lock_file or "data/crisis_shock_catalog_lock.json").strip()  # type: ignore
+        lock_path = Path(lock_raw)
+        if not lock_path.is_absolute():  # type: ignore
+            lock_path = BASE_DIR / lock_path
+        ok, reason = validate_shock_catalog_lock(
+            catalog_path=Path(shock_catalog_raw),  # type: ignore
+            lock_path=lock_path,
+            shock_catalog_key=str(args.shock_catalog_key or "shock_dates"),
+        )
+        if not ok:
+            print(f"[error] shock catalog lock check failed: {reason}")
+            raise SystemExit(3)
+        print(f"[info] shock catalog lock check passed: {lock_path}")
 
     if args.skip_causal and not args.skip_scrape:
         print("[warn] --skip-causal 已开启：本次抓取结果不会写入 causal_panel（仅更新 scraped_news）。")
