@@ -503,6 +503,138 @@ class TestStrictLogic(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("signature_mismatch", reason)
 
+    def test_panel_pipeline_validate_shock_catalog_lock_missing_key(self):
+        catalog = {
+            "catalog_signature_sha256": "abc",
+            "shock_dates": ["2020-01-01"],
+        }
+        lock = {"catalog_signature_sha256": "abc"}
+        with tempfile.TemporaryDirectory() as tmp:
+            c = Path(tmp) / "catalog.json"
+            l = Path(tmp) / "lock.json"
+            c.write_text(json.dumps(catalog, ensure_ascii=False), encoding="utf-8")
+            l.write_text(json.dumps(lock, ensure_ascii=False), encoding="utf-8")
+            ok, reason = panel_pipeline.validate_shock_catalog_lock(
+                catalog_path=c,
+                lock_path=l,
+                shock_catalog_key="shock_dates_nonoverlap_30d",
+            )
+        self.assertFalse(ok)
+        self.assertIn("shock_catalog_key_missing", reason)
+
+    def test_summarize_causal_verdict_blocks_when_placebo_treatment_fails(self):
+        events_stats = causal_analyzer.EventsV2Stats(
+            n_cases=10,
+            mean_gap=10.0,
+            mean_abs_gap=10.0,
+            within_30=8,
+            within_60=10,
+            positive_count=10,
+            negative_count=0,
+            p_abs_gap=0.01,
+            p_within_30=0.01,
+            p_within_60=0.01,
+            p_direction=0.01,
+        )
+        scraped_stats = causal_analyzer.ScrapedStats(
+            policy="strict-balanced",
+            n_ufo=50,
+            n_crisis=50,
+            coverage_days=200,
+            sufficient=True,
+            reason="",
+            window_results={},
+        )
+        window_results = {}
+        for w in causal_analyzer.WINDOWS:
+            window_results[w] = {
+                "obs_effect_adjusted": 0.2,
+                "obs_effect_raw": 0.5,
+                "reverse_effect_raw": 0.1,
+                "placebo_control_effect": 0.05,
+                "p_value_adjusted": 0.04 if w in (3, 7, 10) else 0.2,
+                "p_value_raw": 0.04 if w in (3, 7, 10) else 0.2,
+            }
+        panel_stats = causal_analyzer.PanelStats(
+            policy="strict-balanced",
+            n_days=250,
+            start_date="2025-01-01",
+            end_date="2025-09-07",
+            observed_days=220,
+            missing_days=30,
+            observed_ratio=0.88,
+            max_missing_streak=10,
+            n_shocks=20,
+            shock_threshold=2.0,
+            sufficient=True,
+            reason="样本充分",
+            control_metric="control_density_accepted",
+            window_results=window_results,
+            best_lag=5,
+            best_corr=0.45,
+            best_positive_lag=5,
+            best_positive_corr=0.40,
+            lag0_corr=0.20,
+            placebo_treatment={
+                "estimated_windows": 3,
+                "violations": 1,
+                "dominant_windows": 0,
+                "passed": False,
+            },
+            shock_source="shock_catalog_dates",
+            shock_catalog_key="shock_dates_nonoverlap_30d",
+        )
+        verdict, notes = causal_analyzer.summarize_causal_verdict(events_stats, scraped_stats, panel_stats)
+        self.assertIn("伪处理安慰剂未通过", verdict)
+        self.assertTrue(any("伪处理安慰剂未通过" in n for n in notes))
+
+    def test_run_strict_approval_adds_placebo_treatment_gate(self):
+        window_results = {}
+        for w in causal_analyzer.WINDOWS:
+            window_results[w] = {
+                "obs_effect_adjusted": 0.2,
+                "obs_effect_raw": 0.6,
+                "reverse_effect_raw": 0.1,
+                "placebo_control_effect": 0.05,
+                "p_value_adjusted": 0.03 if w in (3, 7, 10) else 0.2,
+                "p_value_raw": 0.03 if w in (3, 7, 10) else 0.2,
+            }
+        panel_stats = causal_analyzer.PanelStats(
+            policy="strict-balanced",
+            n_days=260,
+            start_date="2025-01-01",
+            end_date="2025-09-18",
+            observed_days=230,
+            missing_days=30,
+            observed_ratio=0.8846,
+            max_missing_streak=8,
+            n_shocks=20,
+            shock_threshold=2.0,
+            sufficient=True,
+            reason="样本充分",
+            control_metric="control_density_accepted",
+            window_results=window_results,
+            best_lag=4,
+            best_corr=0.42,
+            best_positive_lag=4,
+            best_positive_corr=0.39,
+            lag0_corr=0.20,
+            placebo_treatment={
+                "estimated_windows": 3,
+                "violations": 1,
+                "dominant_windows": 0,
+                "min_effect": 0.05,
+                "p_threshold": 0.1,
+                "passed": False,
+            },
+            shock_source="shock_catalog_dates",
+            shock_catalog_key="shock_dates_nonoverlap_30d",
+        )
+        approval = causal_analyzer.run_strict_approval(panel_stats, min_days=180, min_shocks=12, min_observed_ratio=0.85)
+        gate_map = {g.name: g for g in approval.gates}
+        self.assertIn("placebo_treatment_not_dominant", gate_map)
+        self.assertFalse(gate_map["placebo_treatment_not_dominant"].passed)
+
     def test_collect_paged_source_urls_builds_expected_range(self):
         src = {
             "paged_url_template": "https://x.example/feed/?paged={page}",

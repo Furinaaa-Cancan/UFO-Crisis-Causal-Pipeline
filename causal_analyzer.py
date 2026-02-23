@@ -50,6 +50,9 @@ SHOCK_COUNT_FLOOR = 2.0
 EV2_MIN_DATES = 5
 DEFAULT_SCRAPER_LOOKBACK = 120
 LEAD_LAG_TIE_TOLERANCE = 0.08
+PLACEBO_SHOCK_BUFFER_DAYS = 7
+PLACEBO_TREATMENT_MIN_EFFECT = 0.05
+PLACEBO_TREATMENT_P_THRESHOLD = 0.1
 
 CONTROL_TOPIC_KEYWORDS = {
     "economy": {
@@ -135,6 +138,7 @@ class PanelStats:
     best_positive_lag: int
     best_positive_corr: float
     lag0_corr: float
+    placebo_treatment: Dict[str, object]  # type: ignore
     shock_source: str = "news_volume_75pct_fallback"
     shock_catalog_key: str = ""
 
@@ -255,6 +259,34 @@ def _perm_pvalue(
         sampled = rng.sample(all_days, trigger_n)
         null.append(_window_effect(sampled, series, w))
     return sum(x >= obs_effect for x in null) / len(null) if null else 1.0
+
+
+def _distance_to_shocks(d: date, shocks: List[date]) -> int:  # type: ignore
+    if not shocks:
+        return 10**9
+    return min(abs((d - s).days) for s in shocks)
+
+
+def _select_placebo_shock_days(
+    all_days: List[date],  # type: ignore
+    shock_days: List[date],  # type: ignore
+    buffer_days: int = PLACEBO_SHOCK_BUFFER_DAYS,
+) -> List[date]:
+    if not shock_days:
+        return []
+    shock_set = set(shock_days)
+    candidates = [
+        d for d in all_days
+        if d not in shock_set and _distance_to_shocks(d, shock_days) > int(buffer_days)
+    ]
+    if len(candidates) < len(shock_days):
+        # 回退：放宽到所有非冲击日，避免 placebo 样本为空。
+        candidates = [d for d in all_days if d not in shock_set]
+    if not candidates:
+        return []
+    n = min(len(shock_days), len(candidates))
+    rng = make_rng(SEED + 7919 + len(all_days) + len(shock_days))
+    return sorted(rng.sample(candidates, n))  # type: ignore
 
 
 def analyze_scraped(scraped_path: Path, permutations: int = PERMUTATIONS) -> ScrapedStats:
@@ -516,6 +548,16 @@ def analyze_panel(  # type: ignore
 ) -> PanelStats:
     panel = load_panel(panel_path)  # type: ignore
     policy, rows = _select_panel_rows(panel, prefer_policy)  # type: ignore
+    default_placebo_treatment = {
+        "n_placebo_shocks": 0,
+        "buffer_days": int(PLACEBO_SHOCK_BUFFER_DAYS),
+        "estimated_windows": 0,
+        "violations": 0,
+        "dominant_windows": 0,
+        "min_effect": float(PLACEBO_TREATMENT_MIN_EFFECT),
+        "p_threshold": float(PLACEBO_TREATMENT_P_THRESHOLD),
+        "passed": False,
+    }
     if not rows:
         return PanelStats(
             policy=policy,
@@ -537,6 +579,7 @@ def analyze_panel(  # type: ignore
             best_positive_lag=0,
             best_positive_corr=0.0,
             lag0_corr=0.0,
+            placebo_treatment=default_placebo_treatment,
             shock_source="none",
             shock_catalog_key="",
         )
@@ -599,6 +642,7 @@ def analyze_panel(  # type: ignore
             best_positive_lag=0,
             best_positive_corr=0.0,
             lag0_corr=0.0,
+            placebo_treatment=default_placebo_treatment,
             shock_source="none",
             shock_catalog_key="",
         )
@@ -669,6 +713,7 @@ def analyze_panel(  # type: ignore
             best_positive_lag=0,
             best_positive_corr=0.0,
             lag0_corr=0.0,
+            placebo_treatment=default_placebo_treatment,
             shock_source=shock_source,
             shock_catalog_key=(shock_catalog_key if shock_source == "shock_catalog_dates" else ""),
         )
@@ -676,6 +721,11 @@ def analyze_panel(  # type: ignore
     ufo_nonzero = [v for v in ufo_series.values() if v > 0]  # type: ignore
     ufo_thr = compute_shock_threshold(ufo_nonzero)
     ufo_shock_days = [d for d, v in ufo_series.items() if v >= ufo_thr]  # type: ignore
+    placebo_shock_days = _select_placebo_shock_days(
+        all_days=all_days,
+        shock_days=shock_days,
+        buffer_days=PLACEBO_SHOCK_BUFFER_DAYS,
+    )
 
     results = {}
     for w in WINDOWS:
@@ -683,6 +733,7 @@ def analyze_panel(  # type: ignore
         obs_raw = _window_effect(shock_days, ufo_series, w)
         reverse_raw = _window_effect(ufo_shock_days, crisis_series, w)
         placebo_control = _window_effect(shock_days, control_series, w)
+        placebo_treatment_raw = _window_effect(placebo_shock_days, ufo_series, w) if placebo_shock_days else 0.0
         p_adj = _perm_pvalue(
             all_days,
             len(shock_days),
@@ -699,14 +750,59 @@ def analyze_panel(  # type: ignore
             obs_raw,
             permutations=permutations,
         )
+        p_placebo_raw = (
+            _perm_pvalue(
+                all_days,
+                len(placebo_shock_days),
+                ufo_series,
+                w,
+                placebo_treatment_raw,
+                permutations=permutations,
+            )
+            if placebo_shock_days
+            else None
+        )
         results[w] = {  # type: ignore
             "obs_effect_adjusted": obs_adj,
             "obs_effect_raw": obs_raw,
             "reverse_effect_raw": reverse_raw,
             "placebo_control_effect": placebo_control,
+            "placebo_treatment_effect_raw": placebo_treatment_raw,
+            "placebo_treatment_p_value_raw": p_placebo_raw,
             "p_value_adjusted": p_adj,
             "p_value_raw": p_raw,
         }
+
+    placebo_estimated_windows = 0
+    placebo_violations = 0
+    placebo_dominant_windows = 0
+    for w in APPROVAL_WINDOWS:
+        r = results.get(w, {})  # type: ignore
+        p_placebo = r.get("placebo_treatment_p_value_raw")
+        if not isinstance(p_placebo, (int, float)):
+            continue
+        placebo_estimated_windows += 1
+        placebo_effect = float(r.get("placebo_treatment_effect_raw", 0.0) or 0.0)
+        obs_raw = float(r.get("obs_effect_raw", 0.0) or 0.0)
+        if placebo_effect > float(PLACEBO_TREATMENT_MIN_EFFECT) and p_placebo < float(PLACEBO_TREATMENT_P_THRESHOLD):
+            placebo_violations += 1
+        if obs_raw > 0 and placebo_effect >= obs_raw:
+            placebo_dominant_windows += 1
+
+    placebo_treatment = {
+        "n_placebo_shocks": len(placebo_shock_days),
+        "buffer_days": int(PLACEBO_SHOCK_BUFFER_DAYS),
+        "estimated_windows": int(placebo_estimated_windows),
+        "violations": int(placebo_violations),
+        "dominant_windows": int(placebo_dominant_windows),
+        "min_effect": float(PLACEBO_TREATMENT_MIN_EFFECT),
+        "p_threshold": float(PLACEBO_TREATMENT_P_THRESHOLD),
+        "passed": bool(
+            placebo_estimated_windows > 0
+            and placebo_violations == 0
+            and placebo_dominant_windows == 0
+        ),
+    }
 
     # lead-lag 相关：正lag代表“危机领先UFO”
     lag_corrs: Dict[int, float] = {}  # type: ignore
@@ -754,6 +850,7 @@ def analyze_panel(  # type: ignore
         best_positive_lag=int(best_positive_lag),
         best_positive_corr=float(best_positive_corr),
         lag0_corr=lag0_corr,
+        placebo_treatment=placebo_treatment,
         shock_source=shock_source,
         shock_catalog_key=(shock_catalog_key if shock_source == "shock_catalog_dates" else ""),
     )
@@ -799,9 +896,15 @@ def summarize_causal_verdict(
         and panel_stats.best_positive_corr > 0.1
         and not lag0_is_dominant  # lag=0 不能是最优，否则只是同期相关
     )
+    placebo_passed = bool(
+        (panel_stats.placebo_treatment or {}).get("passed", True)  # type: ignore
+    )
 
-    if sig_windows >= 2 and lead_lag_ok:
+    if sig_windows >= 2 and lead_lag_ok and placebo_passed:
         return "存在因果信号（中等强度，仍需外部对照验证）", notes
+    if sig_windows >= 2 and lead_lag_ok and (not placebo_passed):
+        notes.append("伪处理安慰剂未通过：存在与真实处理同量级/同方向的伪冲击效应。")
+        return "存在时序窗口信号，但伪处理安慰剂未通过，因果识别不足", notes
     if sig_windows >= 2:
         return "存在时序窗口显著效应，但前导相关不明确（同期相关主导），因果方向待确认", notes
     if sig_windows >= 1:
@@ -920,6 +1023,24 @@ def run_strict_approval(
         )
     )
 
+    placebo_diag = panel_stats.placebo_treatment or {}  # type: ignore
+    placebo_est = int(placebo_diag.get("estimated_windows", 0) or 0)
+    placebo_viol = int(placebo_diag.get("violations", 0) or 0)
+    placebo_dom = int(placebo_diag.get("dominant_windows", 0) or 0)
+    placebo_gate_passed = placebo_est > 0 and placebo_viol == 0 and placebo_dom == 0
+    gates.append(
+        ApprovalGate(
+            name="placebo_treatment_not_dominant",
+            passed=placebo_gate_passed,
+            detail=(
+                f"estimated_windows={placebo_est}, violations={placebo_viol}, "
+                f"dominant_windows={placebo_dom}, "
+                f"min_effect={placebo_diag.get('min_effect', PLACEBO_TREATMENT_MIN_EFFECT)}, "
+                f"p_threshold={placebo_diag.get('p_threshold', PLACEBO_TREATMENT_P_THRESHOLD)}"
+            ),
+        )
+    )
+
     all_passed = all(g.passed for g in gates)
     if all_passed:
         return ApprovalResult(
@@ -1015,6 +1136,7 @@ def write_causal_report(
             "best_positive_lag": panel_stats.best_positive_lag,
             "best_positive_corr": panel_stats.best_positive_corr,
             "lag0_corr": panel_stats.lag0_corr,
+            "placebo_treatment": panel_stats.placebo_treatment,
             "window_results": panel_stats.window_results,
         },
         "runtime": {
@@ -1191,12 +1313,23 @@ def main() -> None:
             f"最佳正lag: lag={panel_stats.best_positive_lag} corr={panel_stats.best_positive_corr:.4f}; "
             f"lag0_corr={panel_stats.lag0_corr:.4f}"
         )  # type: ignore
+        placebo_diag = panel_stats.placebo_treatment or {}  # type: ignore
+        print(
+            "- 伪处理安慰剂: "
+            f"n_placebo_shocks={placebo_diag.get('n_placebo_shocks', 0)}, "
+            f"estimated_windows={placebo_diag.get('estimated_windows', 0)}, "
+            f"violations={placebo_diag.get('violations', 0)}, "
+            f"dominant_windows={placebo_diag.get('dominant_windows', 0)}, "
+            f"passed={placebo_diag.get('passed', False)}"
+        )
         for w in WINDOWS:
             r = panel_stats.window_results[w]  # type: ignore
             print(
                 f"  window={w}d: adj_effect={r['obs_effect_adjusted']:.4f}, raw_effect={r['obs_effect_raw']:.4f}, "  # type: ignore
-                f"reverse={r['reverse_effect_raw']:.4f}, placebo={r['placebo_control_effect']:.4f}, "  # type: ignore
-                f"p_adj={r['p_value_adjusted']:.4g}, p_raw={r['p_value_raw']:.4g}"  # type: ignore
+                f"reverse={r['reverse_effect_raw']:.4f}, placebo_ctrl={r['placebo_control_effect']:.4f}, "  # type: ignore
+                f"placebo_treat={r['placebo_treatment_effect_raw']:.4f}, "  # type: ignore
+                f"p_adj={r['p_value_adjusted']:.4g}, p_raw={r['p_value_raw']:.4g}, "  # type: ignore
+                f"p_placebo_treat={r.get('placebo_treatment_p_value_raw')}"  # type: ignore
             )
 
     print("\n[审慎解释]")  # type: ignore
